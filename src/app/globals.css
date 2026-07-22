@@ -1,0 +1,197 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light;
+
+  --radius: 0.75rem;
+
+  --background: #ffffff;
+  --foreground: #0f172a;
+
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  --primary: #059669;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+
+  --accent: #ecfdf5;
+  --accent-foreground: #065f46;
+
+  --destructive: #e11d48;
+  --destructive-foreground: #ffffff;
+
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #059669;
+
+  --chart-1: #059669;
+  --chart-2: #10b981;
+  --chart-3: #34d399;
+  --chart-4: #6ee7b7;
+  --chart-5: #a7f3d0;
+
+  --sidebar: #ecfdf5;
+  --sidebar-foreground: #064e3b;
+  --sidebar-primary: #059669;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d1fae5;
+  --sidebar-accent-foreground: #065f46;
+  --sidebar-border: #a7f3d0;
+  --sidebar-ring: #059669;
+
+  --brand-50: #f0fdf4;
+  --brand-100: #dcfce7;
+  --brand-200: #bbf7d0;
+  --brand-300: #86efac;
+  --brand-400: #4ade80;
+  --brand-500: #22c55e;
+  --brand-600: #059669;
+  --brand-700: #047857;
+  --brand-800: #166534;
+  --brand-900: #14532d;
+  --brand-950: #052e16;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Legacy brand-* scale — values come from CSS vars so theme switching works. */
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased text-[13px] leading-snug md:text-sm md:leading-normal;
+  }
+}
+
+/*
+ * Compatibility shim — legacy utility classes re-implemented on the new emerald
+ * theme tokens with rounded corners so not-yet-converted pages match the new
+ * look. Temporary: removed once every page uses shadcn components directly.
+ */
+@layer components {
+  .card {
+    @apply rounded-lg border border-border bg-card text-card-foreground shadow-sm md:rounded-xl;
+  }
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-success,
+  .btn-danger,
+  .btn-warn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 md:gap-2 md:px-4 md:py-2 md:text-sm;
+  }
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+  .btn-secondary {
+    @apply border-border bg-background text-foreground hover:bg-muted;
+  }
+  .btn-success {
+    @apply bg-emerald-700 text-white hover:bg-emerald-800;
+  }
+  .btn-danger {
+    @apply bg-destructive text-white hover:bg-destructive/90;
+  }
+  .btn-warn {
+    @apply bg-amber-600 text-white hover:bg-amber-700;
+  }
+  /* text-[16px] on mobile avoids iOS auto-zoom on focus */
+  .input {
+    @apply w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-[16px] outline-hidden transition-colors focus:border-ring focus:ring-2 focus:ring-ring/30 md:px-3 md:py-2 md:text-sm;
+  }
+  .label {
+    @apply mb-0.5 block text-xs font-medium text-foreground md:mb-1 md:text-sm;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold md:px-2.5 md:text-xs;
+  }
+  .th {
+    @apply px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:px-3 md:py-2 md:text-xs;
+  }
+  .td {
+    @apply px-2 py-2 text-xs text-foreground md:px-3 md:py-2.5 md:text-sm;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
