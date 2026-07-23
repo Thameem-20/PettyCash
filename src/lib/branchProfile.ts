@@ -64,8 +64,23 @@ export async function listBranchProfiles(): Promise<BranchProfile[]> {
 
 /** Ensure a profile row exists (lazy create with defaults). */
 export async function ensureBranchProfile(branchId: number): Promise<BranchProfile> {
-  const existing = await getBranchProfile(branchId);
-  if (existing) return existing;
+  // Must check branch_profiles itself — getBranchProfile LEFT JOINs branches and
+  // always returns a row (with COALESCE defaults) when the branch exists.
+  const profileRow = await queryOne<{ branch_id: number }>(
+    "SELECT branch_id FROM branch_profiles WHERE branch_id = ?",
+    [branchId]
+  );
+  if (profileRow) {
+    const existing = await getBranchProfile(branchId);
+    if (!existing) throw new Error(`Branch ${branchId} not found`);
+    return existing;
+  }
+
+  const branch = await queryOne<{ id: number }>(
+    "SELECT id FROM branches WHERE id = ?",
+    [branchId]
+  );
+  if (!branch) throw new Error(`Branch ${branchId} not found`);
 
   await execute(
     `INSERT INTO branch_profiles (branch_id, request_mode, coding_type, allow_suspense, charge_type_scope)

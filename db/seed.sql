@@ -8,11 +8,11 @@
 
 -- ----- Branches (each is a separate cashbox) -------------------------
 INSERT INTO branches (branch_name, branch_code, currency, opening_balance, current_cash_balance, notes) VALUES
-  ('Dubai',           'DXB',  'AED', 20000.00, 20000.00, 'Main Dubai branch'),
-  ('Dubai Projects',  'DXBP', 'AED', 15000.00, 15000.00, 'Dubai Projects'),
-  ('Abu Dhabi / AUH', 'AUH',  'AED', 15000.00, 15000.00, 'Abu Dhabi branch'),
-  ('Compassion',      'COMP', 'AED', 10000.00, 10000.00, 'Compassion - handled by Fazil and Ziad'),
-  ('CLI Front Office','CLI',  'AED', 10000.00, 10000.00, 'Office utility, admin, office-related requests');
+  ('Dubai',           'DXB',  'AED', 0.00, 0.00, 'Main Dubai branch'),
+  ('Dubai Projects',  'DXBP', 'AED', 0.00, 0.00, 'Dubai Projects'),
+  ('Abu Dhabi / AUH', 'AUH',  'AED', 0.00, 0.00, 'Abu Dhabi branch'),
+  ('Compassion',      'COMP', 'AED', 0.00, 0.00, 'Compassion - handled by Fazil and Ziad'),
+  ('CLI Front Office','CLI',  'AED', 0.00, 0.00, 'Office utility, admin, office-related requests');
 
 -- ----- Users ---------------------------------------------------------
 -- password for everyone: Pass@123
