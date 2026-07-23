@@ -46,12 +46,6 @@ export const NAV_ITEMS: NavItem[] = [
     mobile: true,
     mobileOnlyRoles: ["messenger"],
   },
-  {
-    href: "/confirm",
-    label: "Confirm Cash",
-    roles: ["cash_requester", "messenger", "operations"],
-    mobile: true,
-  },
   { href: "/approvals", label: "Approvals", roles: ["supervisor"], mobile: true },
   { href: "/accounts", label: "Accounts", roles: ["accounts", "accounts_supervisor", "admin"] },
   { href: "/accounts/payments", label: "Payment Records", roles: ["accounts", "accounts_supervisor", "admin"] },
@@ -80,6 +74,12 @@ export const NAV_ITEMS: NavItem[] = [
   {
     href: "/suspense",
     label: "Open Suspense",
+    roles: ["cash_requester", "messenger", "operations", "supervisor"],
+    mobile: true,
+  },
+  {
+    href: "/confirm",
+    label: "Confirm Cash",
     roles: ["cash_requester", "messenger", "operations", "supervisor"],
     mobile: true,
   },

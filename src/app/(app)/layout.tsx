@@ -94,7 +94,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <p className="mt-0.5 text-xs text-brand-100">{ROLE_LABELS[session.role]}</p>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          <Sidebar items={nav} badges={accountsBadges ?? undefined} />
+          <Sidebar
+            items={nav}
+            badges={accountsBadges ?? undefined}
+            fieldStaffBadges={mobileBadges}
+          />
         </div>
         <div className="border-t border-sidebar-border px-5 py-4">
           <p className="text-sm font-semibold text-sidebar-foreground">{session.name}</p>

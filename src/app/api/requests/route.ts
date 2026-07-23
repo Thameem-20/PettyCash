@@ -274,20 +274,32 @@ export async function POST(req: NextRequest) {
     let cashReceiverLabel: string | null = null;
     if (isStaff || receiverType === "myself") {
       cashReceiverUserId = session.id;
-    } else if (receiverType === "messenger" || receiverType === "other") {
+    } else if (receiverType === "messenger" || receiverType === "supervisor") {
       if (receiverUserId) cashReceiverUserId = receiverUserId;
       else cashReceiverLabel = receiverLabel;
       if (!cashReceiverUserId && !cashReceiverLabel)
         throw new ApiError(400, "Select or name the cash receiver");
-      if (receiverType === "messenger" && cashReceiverUserId) {
+      if (cashReceiverUserId) {
         const receiver = await queryOne<{ role: string }>(
           "SELECT role FROM users WHERE id = ? AND is_active = 1",
           [cashReceiverUserId]
         );
-        if (!receiver || receiver.role !== "messenger") {
-          throw new ApiError(400, "Cash receiver must be a Messenger");
+        if (receiverType === "messenger") {
+          if (!receiver || receiver.role !== "messenger") {
+            throw new ApiError(400, "Cash receiver must be a Messenger");
+          }
+        } else if (!receiver || receiver.role !== "supervisor") {
+          throw new ApiError(400, "Cash receiver must be a Supervisor");
         }
+      } else if (receiverType === "supervisor") {
+        throw new ApiError(400, "Select a supervisor as cash receiver");
       }
+    } else if (receiverType === "other") {
+      // Legacy free-text receiver (kept for older clients).
+      if (receiverUserId) cashReceiverUserId = receiverUserId;
+      else cashReceiverLabel = receiverLabel;
+      if (!cashReceiverUserId && !cashReceiverLabel)
+        throw new ApiError(400, "Select or name the cash receiver");
     }
 
     const requestId = await withTransaction(async (conn) => {

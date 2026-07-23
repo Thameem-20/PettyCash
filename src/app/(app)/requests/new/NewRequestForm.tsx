@@ -75,6 +75,7 @@ export default function NewRequestForm({ role }: { role: Role }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [receivers, setReceivers] = useState<Receiver[]>([]);
+  const [supervisors, setSupervisors] = useState<Receiver[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [defaultBranchId, setDefaultBranchId] = useState<number | null>(null);
   const [isCompassion, setIsCompassion] = useState(false);
@@ -89,7 +90,7 @@ export default function NewRequestForm({ role }: { role: Role }) {
   const [requestType, setRequestType] = useState<"exact" | "suspense">("exact");
   const [chargeType, setChargeType] = useState<ChargeType>(isOps || isCashRequester ? "job" : "non_job");
   const [branchId, setBranchId] = useState<number | "">("");
-  const [receiverType, setReceiverType] = useState<"myself" | "messenger" | "other">("myself");
+  const [receiverType, setReceiverType] = useState<"myself" | "messenger" | "supervisor">("myself");
   const [receiverUserId, setReceiverUserId] = useState<number | "">("");
   const [receiverLabel, setReceiverLabel] = useState("");
   const [handlerInfo, setHandlerInfo] = useState<{ branchName?: string; handlers: { name: string }[] }>({
@@ -150,6 +151,7 @@ export default function NewRequestForm({ role }: { role: Role }) {
         setCategories(d.categories);
         setBranches(d.branches);
         setReceivers(d.receivers);
+        setSupervisors(d.supervisors || []);
         setDefaultBranchId(d.defaultBranchId);
         if (d.defaultBranchId) setBranchId(d.defaultBranchId);
         setAllowSuspense(d.allowSuspense !== false);
@@ -274,11 +276,13 @@ export default function NewRequestForm({ role }: { role: Role }) {
     if (
       !isCashRequester &&
       !isCompassion &&
-      (receiverType === "messenger" || receiverType === "other") &&
+      receiverType === "messenger" &&
       !receiverUserId &&
       !receiverLabel.trim()
     )
       return "Select or name the cash receiver";
+    if (!isCashRequester && !isCompassion && receiverType === "supervisor" && !receiverUserId)
+      return "Select a supervisor as cash receiver";
     return null;
   }
 
@@ -304,7 +308,9 @@ export default function NewRequestForm({ role }: { role: Role }) {
       if (isCompassion || submitChargeType === "non_job") fd.set("branch_id", String(branchId));
       fd.set("cash_receiver_type", isCashRequester || isStaff || isCompassion ? "myself" : receiverType);
       if (receiverUserId) fd.set("cash_receiver_user_id", String(receiverUserId));
-      if (receiverLabel.trim()) fd.set("cash_receiver_label", receiverLabel.trim());
+      if (receiverType === "messenger" && receiverLabel.trim()) {
+        fd.set("cash_receiver_label", receiverLabel.trim());
+      }
 
       fd.set(
         "charges_json",
@@ -494,27 +500,48 @@ export default function NewRequestForm({ role }: { role: Role }) {
         <div className="card space-y-2 p-3">
           <label className="label">Cash Receiver</label>
           <div className="grid grid-cols-3 gap-1.5">
-            <SegBtn active={receiverType === "myself"} onClick={() => setReceiverType("myself")}>
+            <SegBtn
+              active={receiverType === "myself"}
+              onClick={() => {
+                setReceiverType("myself");
+                setReceiverUserId("");
+                setReceiverLabel("");
+              }}
+            >
               Myself
             </SegBtn>
-            <SegBtn active={receiverType === "messenger"} onClick={() => setReceiverType("messenger")}>
+            <SegBtn
+              active={receiverType === "messenger"}
+              onClick={() => {
+                setReceiverType("messenger");
+                setReceiverUserId("");
+                setReceiverLabel("");
+              }}
+            >
               Messenger
             </SegBtn>
-            <SegBtn active={receiverType === "other"} onClick={() => setReceiverType("other")}>
-              Other
+            <SegBtn
+              active={receiverType === "supervisor"}
+              onClick={() => {
+                setReceiverType("supervisor");
+                setReceiverUserId("");
+                setReceiverLabel("");
+              }}
+            >
+              Supervisor
             </SegBtn>
           </div>
-          {(receiverType === "messenger" || receiverType === "other") && (
+          {receiverType === "messenger" && (
             <div className="space-y-2">
               <select
                 className="input"
                 value={receiverUserId}
                 onChange={(e) => setReceiverUserId(Number(e.target.value) || "")}
               >
-                <option value="">Select person</option>
+                <option value="">Select messenger</option>
                 {receivers.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.name} ({r.role})
+                    {r.name}
                   </option>
                 ))}
               </select>
@@ -525,6 +552,20 @@ export default function NewRequestForm({ role }: { role: Role }) {
                 onChange={(e) => setReceiverLabel(e.target.value)}
               />
             </div>
+          )}
+          {receiverType === "supervisor" && (
+            <select
+              className="input"
+              value={receiverUserId}
+              onChange={(e) => setReceiverUserId(Number(e.target.value) || "")}
+            >
+              <option value="">Select supervisor</option>
+              {supervisors.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
           )}
         </div>
       )}

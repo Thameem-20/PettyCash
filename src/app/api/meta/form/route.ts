@@ -22,6 +22,9 @@ export async function GET() {
     const receivers = await query(
       "SELECT id, name, role FROM users WHERE is_active = 1 AND role = 'messenger' ORDER BY name"
     );
+    const supervisors = await query(
+      "SELECT id, name, role FROM users WHERE is_active = 1 AND role = 'supervisor' ORDER BY name"
+    );
 
     const preferred = session.preferred_branch_param;
     let defaultBranchId: number | null = null;
@@ -62,6 +65,7 @@ export async function GET() {
       categories,
       branches,
       receivers,
+      supervisors,
       defaultBranchId,
       defaultBranchCode: defaultBranch?.branch_code ?? null,
       isCompassion,
