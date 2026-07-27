@@ -15,6 +15,7 @@ import {
 } from "@/lib/accountsBranch";
 import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
 import { query } from "@/lib/db";
+import AutoRefresh from "@/components/AutoRefresh";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
@@ -85,6 +86,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen md:flex">
+      <AutoRefresh />
       {/* Desktop sidebar */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex md:h-screen md:self-start">
         <div className="bg-gradient-to-br from-brand-600 to-brand-700 px-5 py-4">

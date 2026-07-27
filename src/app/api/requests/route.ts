@@ -29,6 +29,10 @@ import {
   getApprovalPath,
   getSuspenseChargeScope,
 } from "@/lib/approvalPolicy";
+import {
+  getCashReceiverOptions,
+  isCashReceiverTypeAllowed,
+} from "@/lib/cashReceiverOptions";
 import { resolveAllowedJobChargeTypes } from "@/lib/chargeTypePolicy";
 import type { Role } from "@/lib/types";
 
@@ -251,6 +255,18 @@ export async function POST(req: NextRequest) {
             `Charge ${i + 1}: at least one receipt is required for exact reimbursement`
           );
         }
+      }
+    }
+
+    const showsCashReceiverPicker =
+      !isStaff && submitterRole !== "cash_requester" && submitterRole !== "messenger";
+    if (showsCashReceiverPicker) {
+      const receiverOptions = await getCashReceiverOptions(session.id, branchId);
+      if (!isCashReceiverTypeAllowed(receiverOptions, receiverType)) {
+        throw new ApiError(
+          422,
+          "That cash receiver option is not allowed for your account on this branch."
+        );
       }
     }
 

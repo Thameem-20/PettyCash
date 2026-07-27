@@ -129,6 +129,27 @@ export async function accountsBranchIds(userId: number): Promise<number[]> {
   return [...new Set(rows.map((r) => r.branch_id))];
 }
 
+/** Branches assigned to a treasury user via Control Panel (empty = all branches). */
+export async function treasuryBranchIds(userId: number): Promise<number[]> {
+  const rows = await query<{ branch_id: number }>(
+    `SELECT branch_id FROM user_branch_roles WHERE user_id = ? AND role = 'treasury'`,
+    [userId]
+  );
+  return rows.map((r) => r.branch_id);
+}
+
+/** Whether treasury may act on a branch (no assignments → all branches). */
+export async function treasuryCanHandle(
+  session: SessionUser,
+  branchId: number
+): Promise<boolean> {
+  const primary = session.primary_role || session.role;
+  if (session.role === "admin" || primary === "admin") return true;
+  if (session.role !== "treasury" && primary !== "treasury") return false;
+  const ids = await treasuryBranchIds(session.id);
+  return ids.length === 0 || ids.includes(branchId);
+}
+
 /** Whether a session user may view a particular request. */
 export async function canViewRequest(session: SessionUser, r: EnrichedRequest): Promise<boolean> {
   switch (session.role) {
@@ -144,8 +165,10 @@ export async function canViewRequest(session: SessionUser, r: EnrichedRequest): 
       const ids = await accountsBranchIds(session.id);
       return ids.includes(r.branch_id);
     }
-    case "treasury":
-      return true;
+    case "treasury": {
+      const ids = await treasuryBranchIds(session.id);
+      return ids.length === 0 || ids.includes(r.branch_id);
+    }
     case "cash_requester":
     case "messenger":
     case "operations":

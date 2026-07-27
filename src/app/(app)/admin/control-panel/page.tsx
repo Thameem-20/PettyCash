@@ -9,6 +9,7 @@ import {
   listUserApprovalExceptions,
   POLICY_SUBMITTER_ROLES,
 } from "@/lib/approvalPolicy";
+import { listUserCashReceiverOptions } from "@/lib/cashReceiverOptions";
 import { PageHeader } from "@/components/page-chrome";
 import Tabs from "@/components/Tabs";
 import ProfilesEditor from "./ProfilesEditor";
@@ -39,6 +40,7 @@ export default async function ControlPanelPage({
     memberships,
     policies,
     exceptions,
+    cashReceiverOptions,
     profileSupervisors,
     usersFull,
     branchesFull,
@@ -50,6 +52,7 @@ export default async function ControlPanelPage({
     listUserBranchRoles(),
     listApprovalPolicies(),
     listUserApprovalExceptions(),
+    listUserCashReceiverOptions(),
     query<{ id: number; name: string }>(
       `SELECT id, name FROM users
         WHERE is_active = 1 AND role IN ('supervisor','accounts_supervisor','admin')
@@ -96,7 +99,7 @@ export default async function ControlPanelPage({
             <h2 className="mb-1 text-sm font-semibold text-slate-800">User accounts</h2>
             <p className="mb-4 text-sm text-slate-500">
               Create and edit users, primary role, default branch, and branch access for accounts,
-              accounts supervisors, and supervisors.
+              accounts supervisors, treasury, and supervisors.
             </p>
             <UserEditor
               users={JSON.parse(JSON.stringify(usersFull))}
@@ -130,6 +133,13 @@ export default async function ControlPanelPage({
                     for (const r of [...fromMemberships, ...fromAccess]) map.set(key(r), r);
                     return [...map.values()];
                   })()
+                )
+              )}
+              treasuryAccess={JSON.parse(
+                JSON.stringify(
+                  memberships
+                    .filter((m) => m.role === "treasury")
+                    .map((m) => ({ user_id: m.user_id, branch_id: m.branch_id }))
                 )
               )}
               departments={departments.map((d) => d.department)}
@@ -186,6 +196,7 @@ export default async function ControlPanelPage({
             )
           )}
           exceptions={JSON.parse(JSON.stringify(exceptions))}
+          cashReceiverOptions={JSON.parse(JSON.stringify(cashReceiverOptions))}
           users={JSON.parse(
             JSON.stringify(
               (usersFull as { id: number; name: string; email: string; role: Role; is_active: number }[])

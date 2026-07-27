@@ -3,11 +3,11 @@ import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
 import { execute } from "@/lib/db";
 import { audit } from "@/lib/audit";
 
-type AssignmentKind = "accounts" | "accounts_supervisor" | "supervisor";
+type AssignmentKind = "accounts" | "accounts_supervisor" | "supervisor" | "treasury";
 
 /**
- * Add or remove branch assignments for accounts, accounts supervisors, or supervisors
- * (keeps Control Panel user_branch_roles in sync).
+ * Add or remove branch assignments for accounts, accounts supervisors, supervisors,
+ * or treasury (keeps Control Panel user_branch_roles in sync).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -20,7 +20,9 @@ export async function POST(req: NextRequest) {
         ? "supervisor"
         : kind === "accounts_supervisor"
           ? "accounts_supervisor"
-          : "accounts";
+          : kind === "treasury"
+            ? "treasury"
+            : "accounts";
 
     if (assignment === "accounts" || assignment === "accounts_supervisor") {
       const membershipRole = assignment === "accounts_supervisor" ? "accounts_supervisor" : "accounts";
@@ -47,18 +49,19 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
+      const membershipRole = assignment === "treasury" ? "treasury" : "supervisor";
       if (action === "remove") {
         await execute(
           `DELETE FROM user_branch_roles
-            WHERE user_id=? AND branch_id=? AND role = 'supervisor'`,
-          [user_id, branch_id]
+            WHERE user_id=? AND branch_id=? AND role = ?`,
+          [user_id, branch_id, membershipRole]
         );
       } else {
         await execute(
           `INSERT INTO user_branch_roles (user_id, branch_id, role)
-           VALUES (?, ?, 'supervisor')
-           ON DUPLICATE KEY UPDATE role = 'supervisor'`,
-          [user_id, branch_id]
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+          [user_id, branch_id, membershipRole]
         );
       }
     }
@@ -67,7 +70,9 @@ export async function POST(req: NextRequest) {
       userId: session.id,
       action: `user_access_${action || "add"}`,
       entityType:
-        assignment === "supervisor" ? "user_branch_roles" : "user_branch_access",
+        assignment === "accounts" || assignment === "accounts_supervisor"
+          ? "user_branch_access"
+          : "user_branch_roles",
       entityId: user_id,
       newValue: { branch_id, kind: assignment },
     });

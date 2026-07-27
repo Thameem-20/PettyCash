@@ -39,7 +39,7 @@ export default async function ReportsPage({
     detailed?: string;
   };
 }) {
-  const session = await requireRole(["accounts", "accounts_supervisor", "admin"]);
+  const session = await requireRole(["accounts", "accounts_supervisor", "treasury", "admin"]);
 
   const [branches, messengers] = await Promise.all([
     getBranchListForSession(session),

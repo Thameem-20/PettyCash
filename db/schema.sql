@@ -26,6 +26,7 @@ DROP TABLE IF EXISTS expense_categories;
 DROP TABLE IF EXISTS compassion_presets;
 DROP TABLE IF EXISTS compassion_drivers;
 DROP TABLE IF EXISTS job_code_mapping;
+DROP TABLE IF EXISTS user_cash_receiver_options;
 DROP TABLE IF EXISTS user_approval_policy_exceptions;
 DROP TABLE IF EXISTS branch_approval_policies;
 DROP TABLE IF EXISTS branch_profiles;
@@ -172,6 +173,29 @@ CREATE TABLE user_approval_policy_exceptions (
   UNIQUE KEY uq_user_approval_exception (user_id, branch_scope),
   INDEX idx_uape_user (user_id),
   INDEX idx_uape_branch (branch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- user_cash_receiver_options: per-user cash receiver option overrides.
+-- branch_id NULL = all branches; specific branch wins over all-branches.
+-- No row = Myself, Messenger, and Supervisor are all available.
+-- ---------------------------------------------------------------------
+CREATE TABLE user_cash_receiver_options (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  user_id           INT NOT NULL,
+  branch_id         INT NULL,
+  allow_myself      TINYINT(1) NOT NULL DEFAULT 1,
+  allow_messenger   TINYINT(1) NOT NULL DEFAULT 1,
+  allow_supervisor  TINYINT(1) NOT NULL DEFAULT 1,
+  note              VARCHAR(255) NULL,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_ucro_user   FOREIGN KEY (user_id)   REFERENCES users(id)    ON DELETE CASCADE,
+  CONSTRAINT fk_ucro_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+  branch_scope      INT GENERATED ALWAYS AS (IFNULL(branch_id, 0)) STORED,
+  UNIQUE KEY uq_user_cash_receiver_options (user_id, branch_scope),
+  INDEX idx_ucro_user (user_id),
+  INDEX idx_ucro_branch (branch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

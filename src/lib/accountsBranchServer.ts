@@ -1,5 +1,5 @@
 import { query } from "./db";
-import { accountsBranchIds } from "./requests";
+import { accountsBranchIds, treasuryBranchIds } from "./requests";
 import { listWorkspaceBranchesForUser } from "./branchMembership";
 import type { AccountsBranch } from "./accountsBranch";
 
@@ -27,6 +27,19 @@ export async function getBranchListForSession(session: {
 
   if (primary === "accounts_supervisor" || role === "accounts_supervisor") {
     const ids = await accountsBranchIds(session.id);
+    if (ids.length > 0) {
+      return query(
+        "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) AND is_active = 1 ORDER BY branch_name",
+        [ids]
+      );
+    }
+    return query(
+      "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
+    );
+  }
+
+  if (primary === "treasury" || role === "treasury") {
+    const ids = await treasuryBranchIds(session.id);
     if (ids.length > 0) {
       return query(
         "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) AND is_active = 1 ORDER BY branch_name",

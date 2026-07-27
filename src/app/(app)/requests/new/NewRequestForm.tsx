@@ -14,6 +14,12 @@ import {
   type JobChargeType,
   type SuspenseChargeScope,
 } from "@/lib/chargeTypePolicy";
+import {
+  DEFAULT_CASH_RECEIVER_OPTIONS,
+  firstAllowedCashReceiverType,
+  type CashReceiverOptions,
+  type CashReceiverType,
+} from "@/lib/cashReceiverOptionsShared";
 
 interface Category {
   id: number;
@@ -86,11 +92,17 @@ export default function NewRequestForm({ role }: { role: Role }) {
   const [branchSuspenseScopes, setBranchSuspenseScopes] = useState<
     Record<number, SuspenseChargeScope>
   >({});
+  const [cashReceiverOptionsByBranch, setCashReceiverOptionsByBranch] = useState<
+    Record<number, CashReceiverOptions>
+  >({});
+  const [cashReceiverOptionsFallback, setCashReceiverOptionsFallback] = useState<CashReceiverOptions>(
+    DEFAULT_CASH_RECEIVER_OPTIONS
+  );
 
   const [requestType, setRequestType] = useState<"exact" | "suspense">("exact");
   const [chargeType, setChargeType] = useState<ChargeType>(isOps || isCashRequester ? "job" : "non_job");
   const [branchId, setBranchId] = useState<number | "">("");
-  const [receiverType, setReceiverType] = useState<"myself" | "messenger" | "supervisor">("myself");
+  const [receiverType, setReceiverType] = useState<CashReceiverType>("myself");
   const [receiverUserId, setReceiverUserId] = useState<number | "">("");
   const [receiverLabel, setReceiverLabel] = useState("");
   const [handlerInfo, setHandlerInfo] = useState<{ branchName?: string; handlers: { name: string }[] }>({
@@ -105,6 +117,14 @@ export default function NewRequestForm({ role }: { role: Role }) {
 
   const scopeBranchId =
     typeof branchId === "number" ? branchId : defaultBranchId != null ? defaultBranchId : null;
+  const cashReceiverOptions: CashReceiverOptions =
+    (scopeBranchId != null && cashReceiverOptionsByBranch[scopeBranchId]) ||
+    cashReceiverOptionsFallback;
+  const allowedReceiverCount = [
+    cashReceiverOptions.myself,
+    cashReceiverOptions.messenger,
+    cashReceiverOptions.supervisor,
+  ].filter(Boolean).length;
   const branchScope: ChargeTypeScope =
     (scopeBranchId != null && branchChargeScopes[scopeBranchId]) || "job_and_non_job";
   const suspenseScope: SuspenseChargeScope =
@@ -158,6 +178,10 @@ export default function NewRequestForm({ role }: { role: Role }) {
         setBranchChargeScopes(d.branchChargeScopes || {});
         setBranchAllowSuspense(d.branchAllowSuspense || {});
         setBranchSuspenseScopes(d.branchSuspenseScopes || {});
+        setCashReceiverOptionsByBranch(d.cashReceiverOptionsByBranch || {});
+        const fallback = d.cashReceiverOptions || DEFAULT_CASH_RECEIVER_OPTIONS;
+        setCashReceiverOptionsFallback(fallback);
+        setReceiverType(firstAllowedCashReceiverType(fallback));
         if (d.isCompassion) {
           setIsCompassion(true);
           setChargeType("truck_trailer");
@@ -178,6 +202,24 @@ export default function NewRequestForm({ role }: { role: Role }) {
         }
       });
   }, [isOps]);
+
+  useEffect(() => {
+    if (
+      (receiverType === "myself" && cashReceiverOptions.myself) ||
+      (receiverType === "messenger" && cashReceiverOptions.messenger) ||
+      (receiverType === "supervisor" && cashReceiverOptions.supervisor)
+    ) {
+      return;
+    }
+    setReceiverType(firstAllowedCashReceiverType(cashReceiverOptions));
+    setReceiverUserId("");
+    setReceiverLabel("");
+  }, [
+    cashReceiverOptions.myself,
+    cashReceiverOptions.messenger,
+    cashReceiverOptions.supervisor,
+    receiverType,
+  ]);
 
   const allowedJobTypesKey = allowedJobTypes.join(",");
 
@@ -499,39 +541,53 @@ export default function NewRequestForm({ role }: { role: Role }) {
       {!isCashRequester && !isStaff && (
         <div className="card space-y-2 p-3">
           <label className="label">Cash Receiver</label>
-          <div className="grid grid-cols-3 gap-1.5">
-            <SegBtn
-              active={receiverType === "myself"}
-              onClick={() => {
-                setReceiverType("myself");
-                setReceiverUserId("");
-                setReceiverLabel("");
-              }}
-            >
-              Myself
-            </SegBtn>
-            <SegBtn
-              active={receiverType === "messenger"}
-              onClick={() => {
-                setReceiverType("messenger");
-                setReceiverUserId("");
-                setReceiverLabel("");
-              }}
-            >
-              Messenger
-            </SegBtn>
-            <SegBtn
-              active={receiverType === "supervisor"}
-              onClick={() => {
-                setReceiverType("supervisor");
-                setReceiverUserId("");
-                setReceiverLabel("");
-              }}
-            >
-              Supervisor
-            </SegBtn>
+          <div
+            className={`grid gap-1.5 ${
+              allowedReceiverCount >= 3
+                ? "grid-cols-3"
+                : allowedReceiverCount === 2
+                  ? "grid-cols-2"
+                  : "grid-cols-1"
+            }`}
+          >
+            {cashReceiverOptions.myself && (
+              <SegBtn
+                active={receiverType === "myself"}
+                onClick={() => {
+                  setReceiverType("myself");
+                  setReceiverUserId("");
+                  setReceiverLabel("");
+                }}
+              >
+                Myself
+              </SegBtn>
+            )}
+            {cashReceiverOptions.messenger && (
+              <SegBtn
+                active={receiverType === "messenger"}
+                onClick={() => {
+                  setReceiverType("messenger");
+                  setReceiverUserId("");
+                  setReceiverLabel("");
+                }}
+              >
+                Messenger
+              </SegBtn>
+            )}
+            {cashReceiverOptions.supervisor && (
+              <SegBtn
+                active={receiverType === "supervisor"}
+                onClick={() => {
+                  setReceiverType("supervisor");
+                  setReceiverUserId("");
+                  setReceiverLabel("");
+                }}
+              >
+                Supervisor
+              </SegBtn>
+            )}
           </div>
-          {receiverType === "messenger" && (
+          {receiverType === "messenger" && cashReceiverOptions.messenger && (
             <div className="space-y-2">
               <select
                 className="input"
@@ -553,7 +609,7 @@ export default function NewRequestForm({ role }: { role: Role }) {
               />
             </div>
           )}
-          {receiverType === "supervisor" && (
+          {receiverType === "supervisor" && cashReceiverOptions.supervisor && (
             <select
               className="input"
               value={receiverUserId}

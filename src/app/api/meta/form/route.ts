@@ -4,6 +4,7 @@ import { resolveAccountsBranch, type AccountsBranch } from "@/lib/accountsBranch
 import { getBranchProfile, isCompassionMode, listBranchProfiles } from "@/lib/branchProfile";
 import { listActiveCompassionDrivers } from "@/lib/compassion";
 import { getSuspenseChargeScope } from "@/lib/approvalPolicy";
+import { DEFAULT_CASH_RECEIVER_OPTIONS, getCashReceiverOptions } from "@/lib/cashReceiverOptions";
 import { resolveRoleForBranch } from "@/lib/branchMembership";
 import type { Role } from "@/lib/types";
 import type { ChargeTypeScope, SuspenseChargeScope } from "@/lib/chargeTypePolicy";
@@ -61,6 +62,16 @@ export async function GET() {
     const suspenseChargeScope =
       (defaultBranchId && branchSuspenseScopes[defaultBranchId]) || "inherit";
 
+    const cashReceiverOptionsByBranch: Record<number, typeof DEFAULT_CASH_RECEIVER_OPTIONS> = {};
+    await Promise.all(
+      branches.map(async (b) => {
+        cashReceiverOptionsByBranch[b.id] = await getCashReceiverOptions(session.id, b.id);
+      })
+    );
+    const cashReceiverOptions =
+      (defaultBranchId && cashReceiverOptionsByBranch[defaultBranchId]) ||
+      (await getCashReceiverOptions(session.id, defaultBranchId));
+
     return ok({
       categories,
       branches,
@@ -76,6 +87,8 @@ export async function GET() {
       branchChargeScopes,
       branchAllowSuspense,
       branchSuspenseScopes,
+      cashReceiverOptions,
+      cashReceiverOptionsByBranch,
       compassionBranch: isCompassion && profile
         ? {
             id: profile.branch_id,

@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
+import { BlobServiceClient, ContainerClient } from "@azure/storage-blob";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB per file
@@ -16,7 +17,58 @@ export interface SavedFile {
   storedName: string;
   originalName: string;
   mimeType: string;
-  relPath: string; // relative to upload root
+  relPath: string; // relative key under upload root / blob container
+}
+
+function useAzureBlob(): boolean {
+  return Boolean(process.env.AZURE_STORAGE_CONNECTION_STRING?.trim());
+}
+
+function blobContainerName(): string {
+  return process.env.AZURE_STORAGE_CONTAINER?.trim() || "pettycash-receipts";
+}
+
+/** Normalize storage keys to forward slashes (blob-friendly). */
+function storageKey(relPath: string): string {
+  return path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, "").replace(/\\/g, "/");
+}
+
+let cachedContainer: ContainerClient | null = null;
+let containerReady: Promise<ContainerClient> | null = null;
+
+async function getContainer(): Promise<ContainerClient> {
+  if (cachedContainer) return cachedContainer;
+  if (containerReady) return containerReady;
+
+  containerReady = (async () => {
+    const conn = process.env.AZURE_STORAGE_CONNECTION_STRING?.trim();
+    if (!conn) throw new Error("AZURE_STORAGE_CONNECTION_STRING is not set");
+    const service = BlobServiceClient.fromConnectionString(conn);
+    const container = service.getContainerClient(blobContainerName());
+    await container.createIfNotExists();
+    cachedContainer = container;
+    return container;
+  })();
+
+  return containerReady;
+}
+
+async function writeStoredBuffer(
+  relPath: string,
+  buf: Buffer,
+  mimeType: string
+): Promise<void> {
+  const key = storageKey(relPath);
+  if (useAzureBlob()) {
+    const client = (await getContainer()).getBlockBlobClient(key);
+    await client.uploadData(buf, {
+      blobHTTPHeaders: { blobContentType: mimeType },
+    });
+    return;
+  }
+  const full = path.join(uploadRoot(), key);
+  await fs.mkdir(path.dirname(full), { recursive: true });
+  await fs.writeFile(full, buf);
 }
 
 function validateReceiptUpload(file: File) {
@@ -123,19 +175,18 @@ export async function saveReceiptFiles(files: File[]): Promise<SavedFile> {
 
   const buf = await filesToPdf(files);
   const storedName = `${Date.now()}_${crypto.randomBytes(6).toString("hex")}.pdf`;
-  const dir = path.join(uploadRoot(), "receipts");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, storedName), buf);
+  const relPath = storageKey(path.join("receipts", storedName));
+  await writeStoredBuffer(relPath, buf, "application/pdf");
 
   return {
     storedName,
     originalName: receiptPdfName(files),
     mimeType: "application/pdf",
-    relPath: path.join("receipts", storedName),
+    relPath,
   };
 }
 
-/** Persist an uploaded File to disk under uploads/{folder}. */
+/** Persist an uploaded File under {folder}/ (local disk or Azure Blob). */
 export async function saveUploadedFile(file: File, folder: string): Promise<SavedFile> {
   if (!ALLOWED.includes(file.type)) {
     throw new Error("Unsupported file type. Upload an image (JPG/PNG/WEBP) or PDF.");
@@ -146,14 +197,13 @@ export async function saveUploadedFile(file: File, folder: string): Promise<Save
   const buf = Buffer.from(await file.arrayBuffer());
   const ext = path.extname(file.name) || mimeExt(file.type);
   const storedName = `${Date.now()}_${crypto.randomBytes(6).toString("hex")}${ext}`;
-  const dir = path.join(uploadRoot(), folder);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, storedName), buf);
+  const relPath = storageKey(path.join(folder, storedName));
+  await writeStoredBuffer(relPath, buf, file.type);
   return {
     storedName,
     originalName: file.name,
     mimeType: file.type,
-    relPath: path.join(folder, storedName),
+    relPath,
   };
 }
 
@@ -162,14 +212,36 @@ export async function saveTopUpAttachment(file: File): Promise<SavedFile> {
 }
 
 export async function readReceiptFile(relPath: string): Promise<Buffer> {
-  // Guard against path traversal.
-  const safe = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  return fs.readFile(path.join(uploadRoot(), safe));
+  const key = storageKey(relPath);
+
+  if (useAzureBlob()) {
+    try {
+      const client = (await getContainer()).getBlockBlobClient(key);
+      return await client.downloadToBuffer();
+    } catch (err) {
+      // Fall back to local disk for files uploaded before Azure was enabled.
+      try {
+        return await fs.readFile(path.join(uploadRoot(), key));
+      } catch {
+        throw err;
+      }
+    }
+  }
+
+  return fs.readFile(path.join(uploadRoot(), key));
 }
 
 export async function deleteStoredFile(relPath: string): Promise<void> {
-  const safe = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const full = path.join(uploadRoot(), safe);
+  const key = storageKey(relPath);
+  if (useAzureBlob()) {
+    try {
+      await (await getContainer()).getBlockBlobClient(key).deleteIfExists();
+    } catch {
+      // Blob may already be gone.
+    }
+    return;
+  }
+  const full = path.join(uploadRoot(), key);
   try {
     await fs.unlink(full);
   } catch {

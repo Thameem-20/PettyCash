@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireApiSession(["accounts", "accounts_supervisor", "admin"]);
+    const session = await requireApiSession(["accounts", "accounts_supervisor", "treasury", "admin"]);
     const sp = req.nextUrl.searchParams;
     const type = sp.get("type") || "request_list";
     const dateRange = resolveReportDateRange(

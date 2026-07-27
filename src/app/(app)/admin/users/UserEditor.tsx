@@ -25,7 +25,7 @@ interface Access {
   branch_id: number;
 }
 
-type AssignmentKind = "accounts" | "accounts_supervisor" | "supervisor";
+type AssignmentKind = "accounts" | "accounts_supervisor" | "supervisor" | "treasury";
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 const emptyForm = (defaultBranchId: number) => ({
@@ -47,6 +47,7 @@ export default function UserEditor({
   access,
   supervisorAccess,
   accountsSupervisorAccess,
+  treasuryAccess,
   departments,
   defaultBranchId,
 }: {
@@ -56,6 +57,7 @@ export default function UserEditor({
   access: Access[];
   supervisorAccess: Access[];
   accountsSupervisorAccess: Access[];
+  treasuryAccess: Access[];
   departments: string[];
   defaultBranchId: number;
 }) {
@@ -67,6 +69,7 @@ export default function UserEditor({
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accountsSupervisorOpen, setAccountsSupervisorOpen] = useState(false);
   const [supervisorOpen, setSupervisorOpen] = useState(false);
+  const [treasuryOpen, setTreasuryOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<Role | "all">("all");
 
@@ -357,6 +360,17 @@ export default function UserEditor({
         emptyLabel="No accounts supervisor users yet."
         kind="accounts_supervisor"
         rows={accountsSupervisorAccess}
+      />
+
+      <AssignmentSection
+        title="Treasury Branch Assignments"
+        hint="Toggle which branches each treasury user can handle. With no branches selected they keep access to all branches."
+        open={treasuryOpen}
+        setOpen={setTreasuryOpen}
+        role="treasury"
+        emptyLabel="No treasury users yet."
+        kind="treasury"
+        rows={treasuryAccess}
       />
 
       <AssignmentSection
