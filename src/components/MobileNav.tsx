@@ -187,7 +187,7 @@ export default function MobileNav({
 
           return (
             <button
-              key={item.href}
+              key={`${item.href}::${item.label}`}
               type="button"
               onClick={() => navigateFresh(item.href, pathname)}
               className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 py-1.5 transition-colors ${

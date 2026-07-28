@@ -72,6 +72,13 @@ export const NAV_ITEMS: NavItem[] = [
     mobileOnlyRoles: ["supervisor"],
   },
   {
+    href: "/requests/ops",
+    label: "Ops Requests",
+    roles: ["supervisor"],
+    mobile: true,
+    mobileOnlyRoles: ["supervisor"],
+  },
+  {
     href: "/suspense",
     label: "Open Suspense",
     roles: ["cash_requester", "messenger", "operations", "supervisor"],

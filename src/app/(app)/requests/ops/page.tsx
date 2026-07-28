@@ -7,6 +7,7 @@ import RequestTable from "@/components/RequestTable";
 import OpsPersonFilter from "@/components/OpsPersonFilter";
 import Pagination from "@/components/Pagination";
 import { PAGE_SIZE, pageMeta, pageOffset, parsePage } from "@/lib/pagination";
+import { CLOSED_STATUSES } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export default async function OpsRequestsPage({
 }: {
   searchParams: { ops?: string; page?: string };
 }) {
-  const session = await requireRole(["messenger", "cash_requester"]);
+  const session = await requireRole(["messenger", "cash_requester", "supervisor"]);
 
   const opsUsers = await getActiveOpsUsers();
   const opsParam = searchParams.ops?.trim();
@@ -31,12 +32,18 @@ export default async function OpsRequestsPage({
 
   const where =
     validOpsId != null
-      ? "r.cash_receiver_user_id = ? AND su.role = 'operations' AND r.submitted_by_user_id = ?"
-      : "r.cash_receiver_user_id = ? AND su.role = 'operations'";
+      ? "r.cash_receiver_user_id = ? AND (r.submitter_role = 'operations' OR su.role = 'operations') AND r.submitted_by_user_id = ?"
+      : "r.cash_receiver_user_id = ? AND (r.submitter_role = 'operations' OR su.role = 'operations')";
   const params =
     validOpsId != null ? [session.id, validOpsId] : [session.id];
 
-  const total = await countRequestsWhere(where, params);
+  const openWhere = `${where} AND r.status NOT IN (${CLOSED_STATUSES.map(() => "?").join(",")})`;
+  const openParams = [...params, ...CLOSED_STATUSES];
+
+  const [total, openTotal] = await Promise.all([
+    countRequestsWhere(where, params),
+    countRequestsWhere(openWhere, openParams),
+  ]);
   const meta = pageMeta(total, parsePage(searchParams.page));
   const rows = await getRequestsWhere(where, params, "r.created_at DESC", {
     limit: PAGE_SIZE,
@@ -47,7 +54,11 @@ export default async function OpsRequestsPage({
     <div>
       <PageHeader
         title="Ops Requests"
-        subtitle="Requests submitted by operations and assigned to you as cash receiver"
+        subtitle={
+          openTotal > 0
+            ? `${openTotal} open · Requests submitted by operations and assigned to you as cash receiver`
+            : "Requests submitted by operations and assigned to you as cash receiver"
+        }
         actions={
           <Suspense fallback={<div className="input h-10 w-full animate-pulse bg-slate-100 sm:w-48" />}>
             <OpsPersonFilter users={opsUsers} currentOpsId={validOpsId} />

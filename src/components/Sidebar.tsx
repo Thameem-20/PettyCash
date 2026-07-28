@@ -9,6 +9,15 @@ import type { FieldStaffNavBadges } from "@/lib/fieldStaffNav";
 function isNavActive(href: string, pathname: string): boolean {
   if (href === "/accounts") return pathname === "/accounts";
   if (href === "/accounts-supervisor") return pathname === "/accounts-supervisor";
+  if (href === "/requests/ops") return pathname === "/requests/ops";
+  if (href === "/requests") {
+    return (
+      pathname === "/requests" ||
+      (pathname.startsWith("/requests/") &&
+        pathname !== "/requests/new" &&
+        pathname !== "/requests/ops")
+    );
+  }
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -54,7 +63,7 @@ export default function Sidebar({
         const emphasized = item.href === "/admin/control-panel";
         return (
           <Link
-            key={item.href}
+            key={`${item.href}::${item.label}`}
             href={item.href}
             className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
               active

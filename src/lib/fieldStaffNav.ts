@@ -27,7 +27,7 @@ export async function getFieldStaffNavBadges(userId: number): Promise<FieldStaff
       `SELECT COUNT(*) AS c FROM petty_cash_requests r
          JOIN users su ON su.id = r.submitted_by_user_id
         WHERE r.cash_receiver_user_id = ?
-          AND su.role = 'operations'
+          AND (r.submitter_role = 'operations' OR su.role = 'operations')
           AND r.status NOT IN (${closedPh})`,
       [userId, ...CLOSED_STATUSES]
     ),
