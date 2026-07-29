@@ -28,7 +28,13 @@ export default async function NewRequestPage() {
             : "Fill the form and submit for approval"
         }
       />
-      <NewRequestForm role={session.role} />
+      <NewRequestForm
+        role={session.role}
+        branchKey={
+          session.preferred_branch_param ||
+          (session.active_branch_id != null ? String(session.active_branch_id) : "")
+        }
+      />
     </div>
   );
 }

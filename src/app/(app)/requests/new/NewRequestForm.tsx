@@ -72,7 +72,14 @@ function emptyCharge(): ChargeGroup {
 }
 
 
-export default function NewRequestForm({ role }: { role: Role }) {
+export default function NewRequestForm({
+  role,
+  branchKey,
+}: {
+  role: Role;
+  /** Preferred / active branch from session — changes when workspace switcher saves. */
+  branchKey: string;
+}) {
   const isCashRequester = role === "cash_requester" || role === "messenger";
   const isOps = role === "operations";
   const isStaff =
@@ -164,10 +171,11 @@ export default function NewRequestForm({ role }: { role: Role }) {
   }
 
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/meta/form")
       .then((r) => r.json())
       .then((d) => {
-        if (!d.ok) return;
+        if (cancelled || !d.ok) return;
         setCategories(d.categories);
         setBranches(d.branches);
         setReceivers(d.receivers);
@@ -182,6 +190,12 @@ export default function NewRequestForm({ role }: { role: Role }) {
         const fallback = d.cashReceiverOptions || DEFAULT_CASH_RECEIVER_OPTIONS;
         setCashReceiverOptionsFallback(fallback);
         setReceiverType(firstAllowedCashReceiverType(fallback));
+        setReceiverUserId("");
+        setReceiverLabel("");
+        setCharges([emptyCharge()]);
+        setError("");
+        setConfirmOpen(false);
+
         if (d.isCompassion) {
           setIsCompassion(true);
           setChargeType("truck_trailer");
@@ -191,6 +205,10 @@ export default function NewRequestForm({ role }: { role: Role }) {
             setCompassionBranchName(d.compassionBranch.branch_name);
           }
         } else {
+          setIsCompassion(false);
+          setDrivers([]);
+          setCompassionBranchName("Compassion");
+          setHandlerInfo({ handlers: [] });
           const scope = (d.chargeTypeScope || "job_and_non_job") as ChargeTypeScope;
           const suspense = (d.suspenseChargeScope || "inherit") as SuspenseChargeScope;
           const allowed = resolveAllowedJobChargeTypes(scope, suspense, "exact");
@@ -201,7 +219,10 @@ export default function NewRequestForm({ role }: { role: Role }) {
           setChargeType(initial);
         }
       });
-  }, [isOps]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOps, branchKey]);
 
   useEffect(() => {
     if (

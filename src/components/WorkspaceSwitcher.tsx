@@ -108,6 +108,7 @@ export default function WorkspaceSwitcher({
         return;
       }
       closePanel();
+      router.push("/dashboard");
       router.refresh();
     } catch {
       setError("Could not save branch");
