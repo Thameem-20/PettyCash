@@ -133,6 +133,7 @@ export default function RequestActions({
   const canPayExact = sessionCanPayRequest(session, request, accountsBranchIds);
   const isApproveAndPay =
     request.submitter_role === "accounts" &&
+    request.request_type === "exact" &&
     (session.role === "accounts_supervisor" || session.role === "admin");
 
   const s = request.status;
@@ -200,8 +201,11 @@ export default function RequestActions({
       s === SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE) &&
     (!request.processing_by_user_id || request.processing_by_user_id === session.id);
 
+  // Accounts exact reimbursements use Approve & Pay; everything else at Acc Sup queue uses approve-for-pay/issue.
+  const isStaffAccountsExact =
+    request.submitter_role === "accounts" && request.request_type === "exact";
   const isEscalatedAccSupQueue =
-    s === EXACT_STATUS.PENDING_ACC_SUP && request.submitter_role !== "accounts";
+    s === EXACT_STATUS.PENDING_ACC_SUP && !isStaffAccountsExact;
 
   if (
     isEscalatedAccSupQueue &&

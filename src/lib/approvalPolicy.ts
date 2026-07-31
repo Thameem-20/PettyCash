@@ -187,6 +187,7 @@ export function createStateFromApprovalPath(
 ): CreateStatusResult {
   switch (path) {
     case "accounts_supervisor_then_pay":
+      // Exact: Acc Sup approve & pay. Suspense: Acc Sup approve, then Accounts issue.
       return {
         status: EXACT_STATUS.PENDING_ACC_SUP,
         approved_amount: null,

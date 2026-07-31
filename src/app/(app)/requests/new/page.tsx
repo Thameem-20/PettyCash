@@ -21,10 +21,10 @@ export default async function NewRequestPage() {
       <PageHeader
         backHref="/requests"
         hideBackOnMobile
-        title={staff ? "New Reimbursement" : "New Petty Cash Request"}
+        title={staff ? "New Request" : "New Petty Cash Request"}
         subtitle={
           staff
-            ? "Exact reimbursement only — you will confirm cash after payment"
+            ? "Exact reimbursement or suspense advance — cash is paid to you"
             : "Fill the form and submit for approval"
         }
       />

@@ -147,7 +147,7 @@ export default function NewRequestForm({
   const allowedJobTypes = resolveAllowedJobChargeTypes(
     branchScope,
     suspenseScope,
-    isStaff ? "exact" : requestType
+    requestType
   );
   const showChargeTypePicker = !isCompassion && allowedJobTypes.length > 1 && !isOps;
   const lockedJobChargeType = allowedJobTypes.length === 1 ? allowedJobTypes[0] : null;
@@ -429,7 +429,7 @@ export default function NewRequestForm({
     try {
       const fd = new FormData();
       const submitChargeType = isCompassion ? chargeType : effectiveJobChargeType;
-      fd.set("request_type", isStaff ? "exact" : requestType);
+      fd.set("request_type", requestType);
       fd.set("charge_type", submitChargeType);
       if (isCompassion || submitChargeType === "non_job") fd.set("branch_id", String(branchId));
       fd.set("cash_receiver_type", isCashRequester || isStaff || isCompassion ? "myself" : receiverType);
@@ -494,40 +494,28 @@ export default function NewRequestForm({
 
   return (
     <form onSubmit={openConfirm} className="space-y-3">
-      {!isStaff && (
-        <div className="card space-y-2 p-3">
-          <label className="label">Request Type</label>
-          <div className={`grid gap-1.5 ${suspenseEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
-            <SegBtn active={requestType === "exact"} onClick={() => setRequestType("exact")}>
-              Exact / Reimbursement
+      <div className="card space-y-2 p-3">
+        <label className="label">Request Type</label>
+        <div className={`grid gap-1.5 ${suspenseEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+          <SegBtn active={requestType === "exact"} onClick={() => setRequestType("exact")}>
+            Exact / Reimbursement
+          </SegBtn>
+          {suspenseEnabled && (
+            <SegBtn active={requestType === "suspense"} onClick={() => setRequestType("suspense")}>
+              Suspense / Advance
             </SegBtn>
-            {suspenseEnabled && (
-              <SegBtn active={requestType === "suspense"} onClick={() => setRequestType("suspense")}>
-                Suspense / Advance
-              </SegBtn>
-            )}
-          </div>
-          <p className="text-[11px] leading-snug text-slate-500">
-            {requestType === "exact"
-              ? "Exact amount known. Receipt required now."
+          )}
+        </div>
+        <p className="text-[11px] leading-snug text-slate-500">
+          {requestType === "exact"
+            ? isStaff
+              ? "Exact amount known. Receipt required now. Paid to you after approval."
+              : "Exact amount known. Receipt required now."
+            : isStaff
+              ? "Advance first; settle later with receipt. Cash is issued to you."
               : "Advance first; settle later with receipt."}
-          </p>
-        </div>
-      )}
-      {isStaff && (
-        <div className="card space-y-1 p-3">
-          <p className="text-sm font-semibold text-slate-800">Exact reimbursement</p>
-          <p className="text-[11px] leading-snug text-slate-500">
-            Receipt required. Paid to you after{" "}
-            {role === "accounts"
-              ? "Accounts Supervisor approval"
-              : role === "accounts_supervisor"
-                ? "Accounts payment"
-                : "Accounts payment"}
-            ; then confirm receipt.
-          </p>
-        </div>
-      )}
+        </p>
+      </div>
 
       {isCompassion ? (
         <div className="card space-y-2 p-3">
@@ -703,7 +691,7 @@ export default function NewRequestForm({
             index={index}
             total={charges.length}
             charge={charge}
-            requestType={isStaff ? "exact" : requestType}
+            requestType={requestType}
             showJob={!isCompassion && effectiveJobChargeType === "job"}
             showCompassion={isCompassion}
             requireCompassionVehicle={chargeType === "truck_trailer"}
@@ -817,7 +805,10 @@ export default function NewRequestForm({
         </div>
       )}
       {isStaff && (
-        <p className="text-xs text-slate-500">Cash receiver: you (confirm after payment).</p>
+        <p className="text-xs text-slate-500">
+          Cash receiver: you (
+          {requestType === "exact" ? "confirm after payment" : "confirm after cash is issued"}).
+        </p>
       )}
 
       {error && <p className="border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}

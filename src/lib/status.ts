@@ -15,7 +15,7 @@ export const EXACT_STATUS = {
   CLOSED: "Closed",
 } as const;
 
-/** Roles that create self-reimbursement (exact-only) with alternate pay routing. */
+/** Roles that create self-reimbursement with alternate pay/issue routing. */
 export const STAFF_REIMBURSEMENT_ROLES = [
   "supervisor",
   "accounts",

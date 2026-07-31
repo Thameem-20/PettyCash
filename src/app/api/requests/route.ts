@@ -340,11 +340,8 @@ export async function POST(req: NextRequest) {
     }
 
     const isStaff = isStaffReimbursementRole(submitterRole);
-    if (isStaff) {
-      requestType = "exact";
-      if (compassion) {
-        throw new ApiError(400, "Staff reimbursements cannot use Compassion charge types.");
-      }
+    if (isStaff && compassion) {
+      throw new ApiError(400, "Staff requests cannot use Compassion charge types.");
     }
     if (requestType === "exact") {
       for (let i = 0; i < charges.length; i++) {

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       throw new ApiError(409, "Request is not awaiting Accounts Supervisor approval.");
     }
 
-    if (request.submitter_role === "accounts") {
+    if (request.submitter_role === "accounts" && request.request_type === "exact") {
       throw new ApiError(
         409,
         "Accounts reimbursements use Approve & Pay, not approve-for-payment."
