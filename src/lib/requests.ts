@@ -323,6 +323,11 @@ export interface RequestCharge {
   trailer_number: string | null;
   driver_id: number | null;
   driver_name: string | null;
+  fuel_from_km: number | null;
+  fuel_to_km: number | null;
+  fuel_liters: number | null;
+  vehicle_number: string | null;
+  vehicle_label: string | null;
   category_id: number | null;
   category_name: string | null;
 }
@@ -331,6 +336,7 @@ export async function getRequestCharges(requestId: number): Promise<RequestCharg
   return query<RequestCharge>(
     `SELECT ch.id, ch.request_id, ch.sort_order, ch.description, ch.amount, ch.actual_amount,
             ch.job_number, ch.truck_number, ch.trailer_number, ch.driver_id,
+            ch.fuel_from_km, ch.fuel_to_km, ch.fuel_liters, ch.vehicle_number, ch.vehicle_label,
             d.name AS driver_name, ch.category_id, c.category_name
        FROM request_charges ch
        LEFT JOIN expense_categories c ON c.id = ch.category_id
@@ -352,6 +358,11 @@ export async function insertRequestCharges(
     truck_number?: string | null;
     trailer_number?: string | null;
     driver_id?: number | null;
+    fuel_from_km?: number | null;
+    fuel_to_km?: number | null;
+    fuel_liters?: number | null;
+    vehicle_number?: string | null;
+    vehicle_label?: string | null;
   }[]
 ): Promise<number[]> {
   const ids: number[] = [];
@@ -359,8 +370,9 @@ export async function insertRequestCharges(
     const ch = charges[i];
     const [res] = await conn.execute<any>(
       `INSERT INTO request_charges
-         (request_id, sort_order, description, amount, job_number, truck_number, trailer_number, driver_id, category_id)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+         (request_id, sort_order, description, amount, job_number, truck_number, trailer_number,
+          driver_id, fuel_from_km, fuel_to_km, fuel_liters, vehicle_number, vehicle_label, category_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         requestId,
         i,
@@ -370,6 +382,11 @@ export async function insertRequestCharges(
         ch.truck_number ?? null,
         ch.trailer_number ?? null,
         ch.driver_id ?? null,
+        ch.fuel_from_km ?? null,
+        ch.fuel_to_km ?? null,
+        ch.fuel_liters ?? null,
+        ch.vehicle_number ?? null,
+        ch.vehicle_label ?? null,
         ch.category_id,
       ]
     );

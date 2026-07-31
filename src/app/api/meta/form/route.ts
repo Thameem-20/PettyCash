@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { resolveAccountsBranch, type AccountsBranch } from "@/lib/accountsBranch";
 import { getBranchProfile, isCompassionMode, listBranchProfiles } from "@/lib/branchProfile";
 import { listActiveCompassionDrivers } from "@/lib/compassion";
+import { listActiveFleetVehicles } from "@/lib/fleetVehicles";
 import { getSuspenseChargeScope } from "@/lib/approvalPolicy";
 import { DEFAULT_CASH_RECEIVER_OPTIONS, getCashReceiverOptions } from "@/lib/cashReceiverOptions";
 import { resolveRoleForBranch } from "@/lib/branchMembership";
@@ -97,6 +98,10 @@ export async function GET() {
           }
         : null,
       compassionDrivers: isCompassion ? await listActiveCompassionDrivers() : [],
+      fleetVehicles:
+        primaryRole === "messenger" || primaryRole === "cash_requester"
+          ? await listActiveFleetVehicles()
+          : [],
     });
   } catch (err) {
     return fail(err);

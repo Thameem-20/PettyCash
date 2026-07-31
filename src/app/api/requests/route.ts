@@ -6,7 +6,7 @@ import { ChargeType } from "@/lib/types";
 import { resolveBranchFromJobNumbers, pickAccountsUser, parseJobNumbers } from "@/lib/routing";
 import { isElevated } from "@/lib/rbac";
 import { saveReceiptFiles } from "@/lib/files";
-import { nextRequestNo } from "@/lib/util";
+import { money, nextRequestNo } from "@/lib/util";
 import { auditTx } from "@/lib/audit";
 import { isStaffReimbursementRole } from "@/lib/status";
 import {
@@ -35,6 +35,13 @@ import {
 } from "@/lib/cashReceiverOptions";
 import { resolveAllowedJobChargeTypes } from "@/lib/chargeTypePolicy";
 import type { Role } from "@/lib/types";
+import {
+  notifyUsersAsync,
+  resolveNewRequestNotifyUserIds,
+} from "@/lib/push";
+import { findActiveFleetVehicleByPlate } from "@/lib/fleetVehicles";
+
+const FUEL_DESCRIPTION = "Fuel Charges";
 
 type ParsedCharge = {
   description: string;
@@ -43,8 +50,19 @@ type ParsedCharge = {
   truckNumber: string | null;
   trailerNumber: string | null;
   driverId: number | null;
+  vehicleNumber: string | null;
+  vehicleLabel: string | null;
+  fuelFromKm: number | null;
+  fuelToKm: number | null;
+  fuelLiters: number | null;
   files: File[];
 };
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value == null || String(value).trim() === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
 function parseChargesFromForm(form: FormData): ParsedCharge[] | null {
   const raw = form.get("charges_json");
@@ -73,6 +91,8 @@ function parseChargesFromForm(form: FormData): ParsedCharge[] | null {
     );
     const truckNumber = String(row.truck_number || "").trim() || null;
     const trailerNumber = String(row.trailer_number || "").trim() || null;
+    const vehicleNumber = String(row.vehicle_number || "").trim() || null;
+    const vehicleLabel = String(row.vehicle_label || "").trim() || null;
     const driverRaw = row.driver_id;
     const driverId =
       driverRaw != null && String(driverRaw).trim() !== "" ? Number(driverRaw) : null;
@@ -86,6 +106,11 @@ function parseChargesFromForm(form: FormData): ParsedCharge[] | null {
       truckNumber,
       trailerNumber,
       driverId: Number.isFinite(driverId) && driverId! > 0 ? driverId : null,
+      vehicleNumber,
+      vehicleLabel,
+      fuelFromKm: parseOptionalNumber(row.fuel_from_km),
+      fuelToKm: parseOptionalNumber(row.fuel_to_km),
+      fuelLiters: parseOptionalNumber(row.fuel_liters),
       files,
     };
   });
@@ -103,6 +128,11 @@ function parseLegacySingleCharge(form: FormData): ParsedCharge {
     truckNumber: null,
     trailerNumber: null,
     driverId: null,
+    vehicleNumber: null,
+    vehicleLabel: null,
+    fuelFromKm: null,
+    fuelToKm: null,
+    fuelLiters: null,
     files,
   };
 }
@@ -142,11 +172,16 @@ export async function POST(req: NextRequest) {
 
     const multi = parseChargesFromForm(form);
     const charges = multi ?? [parseLegacySingleCharge(form)];
+    const fuelRequested =
+      String(form.get("is_fuel_charges") || "") === "true" ||
+      charges.some((c) => c.fuelFromKm != null || c.fuelToKm != null || c.fuelLiters != null);
 
     for (let i = 0; i < charges.length; i++) {
       const c = charges[i];
       const n = i + 1;
-      if (!c.description) throw new ApiError(400, `Charge ${n}: description is required`);
+      if (!fuelRequested && !c.description) {
+        throw new ApiError(400, `Charge ${n}: description is required`);
+      }
       if (!(c.amount > 0)) throw new ApiError(400, `Charge ${n}: amount must be greater than zero`);
       if (chargeType === "job" && c.jobNumbers.length === 0) {
         throw new ApiError(400, `Charge ${n}: job number is required`);
@@ -163,10 +198,6 @@ export async function POST(req: NextRequest) {
     const totalAmount = charges.reduce((sum, c) => sum + c.amount, 0);
     const allJobNumbers = parseJobNumbers(charges.flatMap((c) => c.jobNumbers));
     const primaryJobNumber = allJobNumbers[0] || "";
-    const summaryDescription =
-      charges.length === 1
-        ? charges[0].description
-        : charges.map((c) => c.description).join("\n");
 
     let branchOverrideFlag = 0;
 
@@ -219,6 +250,74 @@ export async function POST(req: NextRequest) {
     }
 
     const submitterRole = await resolveRoleForBranch(session.id, branchId, primaryRole);
+
+    let fuelVehicleNo: string | null = null;
+    let fuelVehicleLabel: string | null = null;
+    let fuelFromKm: number | null = null;
+    let fuelToKm: number | null = null;
+    let fuelLiters: number | null = null;
+    if (fuelRequested) {
+      if (submitterRole !== "messenger" && submitterRole !== "cash_requester") {
+        throw new ApiError(403, "Fuel charges are only available for messengers and cash requesters");
+      }
+      if (compassion || chargeType !== "non_job") {
+        throw new ApiError(400, "Fuel charges are only allowed for non-job related requests");
+      }
+      fuelVehicleNo =
+        String(form.get("fuel_vehicle_no") || "").trim() ||
+        charges.find((c) => c.vehicleNumber)?.vehicleNumber ||
+        null;
+      if (!fuelVehicleNo) throw new ApiError(400, "Vehicle number is required for fuel charges");
+
+      const fleet = await findActiveFleetVehicleByPlate(fuelVehicleNo);
+      if (!fleet) {
+        throw new ApiError(
+          400,
+          "Select a vehicle from the admin vehicle list (plate number not found)"
+        );
+      }
+      fuelVehicleNo = fleet.plate_no;
+      fuelVehicleLabel = fleet.label;
+
+      fuelFromKm =
+        parseOptionalNumber(form.get("fuel_from_km")) ??
+        charges.find((c) => c.fuelFromKm != null)?.fuelFromKm ??
+        null;
+      fuelToKm =
+        parseOptionalNumber(form.get("fuel_to_km")) ??
+        charges.find((c) => c.fuelToKm != null)?.fuelToKm ??
+        null;
+      fuelLiters =
+        parseOptionalNumber(form.get("fuel_liters")) ??
+        charges.find((c) => c.fuelLiters != null)?.fuelLiters ??
+        null;
+      if (fuelFromKm == null || fuelFromKm < 0) {
+        throw new ApiError(400, "From km is required for fuel charges");
+      }
+      if (fuelToKm == null || fuelToKm < 0) {
+        throw new ApiError(400, "To km is required for fuel charges");
+      }
+      if (fuelToKm < fuelFromKm) {
+        throw new ApiError(400, "To km must be greater than or equal to from km");
+      }
+      if (fuelLiters == null || fuelLiters <= 0) {
+        throw new ApiError(400, "Liters must be greater than zero for fuel charges");
+      }
+      for (const c of charges) {
+        c.description = FUEL_DESCRIPTION;
+        c.vehicleNumber = fuelVehicleNo;
+        c.vehicleLabel = fuelVehicleLabel;
+        c.fuelFromKm = fuelFromKm;
+        c.fuelToKm = fuelToKm;
+        c.fuelLiters = fuelLiters;
+      }
+    }
+
+    const summaryDescription = fuelRequested
+      ? FUEL_DESCRIPTION
+      : charges.length === 1
+        ? charges[0].description
+        : charges.map((c) => c.description).join("\n");
 
     if (!compassion && (chargeType === "job" || chargeType === "non_job")) {
       const suspenseScope = await getSuspenseChargeScope(branchId, submitterRole);
@@ -327,6 +426,11 @@ export async function POST(req: NextRequest) {
         truck_number: string | null;
         trailer_number: string | null;
         driver_id: number | null;
+        fuel_from_km: number | null;
+        fuel_to_km: number | null;
+        fuel_liters: number | null;
+        vehicle_number: string | null;
+        vehicle_label: string | null;
       }[] = [];
 
       for (const c of charges) {
@@ -378,6 +482,11 @@ export async function POST(req: NextRequest) {
           truck_number: compassion ? c.truckNumber : null,
           trailer_number: compassion ? c.trailerNumber : null,
           driver_id: compassion ? c.driverId : null,
+          fuel_from_km: fuelRequested ? fuelFromKm : null,
+          fuel_to_km: fuelRequested ? fuelToKm : null,
+          fuel_liters: fuelRequested ? fuelLiters : null,
+          vehicle_number: fuelRequested ? fuelVehicleNo : null,
+          vehicle_label: fuelRequested ? fuelVehicleLabel : null,
         });
       }
 
@@ -461,6 +570,27 @@ export async function POST(req: NextRequest) {
 
       return newId;
     });
+
+    // Notify the first person who needs to act (supervisor or accounts), if they opted in.
+    const notifyIds = await resolveNewRequestNotifyUserIds({
+      approvalPath,
+      needsSupervisor: createState.needsSupervisor,
+      supervisorId,
+      accountsUserId,
+      branchId,
+    });
+    const amountLabel = money(totalAmount);
+    notifyUsersAsync(
+      notifyIds.filter((id) => id !== session.id),
+      {
+        title: createState.needsSupervisor
+          ? "Approval needed"
+          : "New request for accounts",
+        body: `${session.name} · ${amountLabel} · ${status}`,
+        url: `/requests/${requestId}`,
+        tag: `request-${requestId}`,
+      }
+    );
 
     return ok({ id: requestId });
   } catch (err) {

@@ -21,11 +21,8 @@ import {
   type CashReceiverType,
 } from "@/lib/cashReceiverOptionsShared";
 
-interface Category {
-  id: number;
-  category_name: string;
-  charge_type: ChargeType;
-}
+const FUEL_DESCRIPTION = "Fuel Charges";
+
 interface Branch {
   id: number;
   branch_name: string;
@@ -39,6 +36,11 @@ interface Receiver {
 interface Driver {
   id: number;
   name: string;
+}
+interface FleetVehicle {
+  id: number;
+  plate_no: string;
+  label: string;
 }
 
 type ChargeGroup = {
@@ -85,11 +87,11 @@ export default function NewRequestForm({
   const isStaff =
     role === "supervisor" || role === "accounts" || role === "accounts_supervisor";
   const router = useRouter();
-  const [categories, setCategories] = useState<Category[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [receivers, setReceivers] = useState<Receiver[]>([]);
   const [supervisors, setSupervisors] = useState<Receiver[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
   const [defaultBranchId, setDefaultBranchId] = useState<number | null>(null);
   const [isCompassion, setIsCompassion] = useState(false);
   const [compassionBranchName, setCompassionBranchName] = useState("Compassion");
@@ -117,6 +119,12 @@ export default function NewRequestForm({
   });
 
   const [charges, setCharges] = useState<ChargeGroup[]>([emptyCharge()]);
+  const [fuelCharges, setFuelCharges] = useState(false);
+  const [fuelVehicleNo, setFuelVehicleNo] = useState("");
+  const [fuelVehicleLabel, setFuelVehicleLabel] = useState("");
+  const [fuelFromKm, setFuelFromKm] = useState("");
+  const [fuelToKm, setFuelToKm] = useState("");
+  const [fuelLiters, setFuelLiters] = useState("");
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState("");
@@ -153,21 +161,55 @@ export default function NewRequestForm({
           ? chargeType
           : pickDefaultJobChargeType(allowedJobTypes);
 
+  const canUseFuelCharges =
+    isCashRequester && !isCompassion && effectiveJobChargeType === "non_job";
+  const fuelActive = canUseFuelCharges && fuelCharges;
+
+  useEffect(() => {
+    if (canUseFuelCharges) return;
+    setFuelCharges(false);
+  }, [canUseFuelCharges]);
+
+  useEffect(() => {
+    if (!fuelActive) return;
+    setCharges((prev) =>
+      prev.map((c) => (c.description === FUEL_DESCRIPTION ? c : { ...c, description: FUEL_DESCRIPTION }))
+    );
+  }, [fuelActive, charges.length]);
+
   const updateCharge = useCallback((key: string, patch: Partial<ChargeGroup>) => {
     setCharges((prev) => prev.map((c) => (c.key === key ? { ...c, ...patch } : c)));
   }, []);
 
   function onChargeDescriptionChange(key: string, desc: string) {
+    if (fuelActive) return;
     updateCharge(key, { description: desc });
-    if (isOps || isCompassion || lockedJobChargeType) return;
-    const match = categories.find((c) => c.category_name.toLowerCase() === desc.trim().toLowerCase());
-    if (
-      match &&
-      (match.charge_type === "job" || match.charge_type === "non_job") &&
-      allowedJobTypes.includes(match.charge_type)
-    ) {
-      setChargeType(match.charge_type);
+  }
+
+  function toggleFuelCharges(on: boolean) {
+    setFuelCharges(on);
+    if (on) {
+      setCharges((prev) => prev.map((c) => ({ ...c, description: FUEL_DESCRIPTION })));
+    } else {
+      setCharges((prev) =>
+        prev.map((c) =>
+          c.description === FUEL_DESCRIPTION ? { ...c, description: "" } : c
+        )
+      );
+      setFuelVehicleNo("");
+      setFuelVehicleLabel("");
+      setFuelFromKm("");
+      setFuelToKm("");
+      setFuelLiters("");
     }
+  }
+
+  function selectFuelVehicle(plateNo: string) {
+    setFuelVehicleNo(plateNo);
+    const match = fleetVehicles.find(
+      (v) => v.plate_no.toLowerCase() === plateNo.trim().toLowerCase()
+    );
+    setFuelVehicleLabel(match?.label || "");
   }
 
   useEffect(() => {
@@ -176,7 +218,6 @@ export default function NewRequestForm({
       .then((r) => r.json())
       .then((d) => {
         if (cancelled || !d.ok) return;
-        setCategories(d.categories);
         setBranches(d.branches);
         setReceivers(d.receivers);
         setSupervisors(d.supervisors || []);
@@ -193,6 +234,13 @@ export default function NewRequestForm({
         setReceiverUserId("");
         setReceiverLabel("");
         setCharges([emptyCharge()]);
+        setFuelCharges(false);
+        setFuelVehicleNo("");
+        setFuelVehicleLabel("");
+        setFuelFromKm("");
+        setFuelToKm("");
+        setFuelLiters("");
+        setFleetVehicles(d.fleetVehicles || []);
         setError("");
         setConfirmOpen(false);
 
@@ -307,6 +355,21 @@ export default function NewRequestForm({
       return "Selected charge type is not allowed for this branch or request type";
     }
 
+    if (fuelActive) {
+      if (!fuelVehicleNo.trim()) return "Select a vehicle";
+      if (!fuelVehicleLabel.trim()) return "Selected vehicle is not in the admin list";
+      if (fuelFromKm.trim() === "" || Number(fuelFromKm) < 0 || Number.isNaN(Number(fuelFromKm))) {
+        return "Enter a valid from km";
+      }
+      if (fuelToKm.trim() === "" || Number(fuelToKm) < 0 || Number.isNaN(Number(fuelToKm))) {
+        return "Enter a valid to km";
+      }
+      if (Number(fuelToKm) < Number(fuelFromKm)) return "To km must be greater than or equal to from km";
+      if (!fuelLiters.trim() || Number(fuelLiters) <= 0 || Number.isNaN(Number(fuelLiters))) {
+        return "Enter liters greater than zero";
+      }
+    }
+
     for (let i = 0; i < charges.length; i++) {
       const c = charges[i];
       const n = i + 1;
@@ -375,11 +438,19 @@ export default function NewRequestForm({
         fd.set("cash_receiver_label", receiverLabel.trim());
       }
 
+      if (fuelActive) {
+        fd.set("is_fuel_charges", "true");
+        fd.set("fuel_vehicle_no", fuelVehicleNo.trim());
+        fd.set("fuel_from_km", String(Number(fuelFromKm)));
+        fd.set("fuel_to_km", String(Number(fuelToKm)));
+        fd.set("fuel_liters", String(Number(fuelLiters)));
+      }
+
       fd.set(
         "charges_json",
         JSON.stringify(
           charges.map((c) => ({
-            description: c.description.trim(),
+            description: fuelActive ? FUEL_DESCRIPTION : c.description.trim(),
             amount: Number(c.amount),
             job_number: !isCompassion && submitChargeType === "job" ? c.jobNumber.trim() : null,
             job_numbers:
@@ -391,6 +462,11 @@ export default function NewRequestForm({
             truck_number: isCompassion ? c.truckNumber.trim() || null : null,
             trailer_number: isCompassion ? c.trailerNumber.trim() || null : null,
             driver_id: isCompassion && c.driverId ? c.driverId : null,
+            vehicle_number: fuelActive ? fuelVehicleNo.trim() || null : null,
+            vehicle_label: fuelActive ? fuelVehicleLabel.trim() || null : null,
+            fuel_from_km: fuelActive ? Number(fuelFromKm) : null,
+            fuel_to_km: fuelActive ? Number(fuelToKm) : null,
+            fuel_liters: fuelActive ? Number(fuelLiters) : null,
           }))
         )
       );
@@ -532,6 +608,94 @@ export default function NewRequestForm({
         </div>
       )}
 
+      {canUseFuelCharges && (
+        <div className="card space-y-2.5 p-3">
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">Fuel charges</span>
+              <span className="block text-[11px] leading-snug text-slate-500">
+                Applies to this whole request. Description becomes Fuel Charges.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={fuelCharges}
+              onChange={(e) => toggleFuelCharges(e.target.checked)}
+            />
+          </label>
+          {fuelActive && (
+            <div className="space-y-2 border-t border-slate-200 pt-2.5">
+              <div>
+                <label className="label">Vehicle no *</label>
+                <select
+                  className="input"
+                  value={fuelVehicleNo}
+                  onChange={(e) => selectFuelVehicle(e.target.value)}
+                >
+                  <option value="">Select plate number</option>
+                  {fleetVehicles.map((v) => (
+                    <option key={v.id} value={v.plate_no}>
+                      {v.plate_no}
+                    </option>
+                  ))}
+                </select>
+                {fuelVehicleLabel ? (
+                  <p className="mt-1.5 border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700">
+                    Vehicle: <b>{fuelVehicleLabel}</b>
+                  </p>
+                ) : fleetVehicles.length === 0 ? (
+                  <p className="mt-1.5 text-xs text-amber-700">
+                    No vehicles configured. Ask an admin to add plate numbers under Vehicles.
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label">From km *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={fuelFromKm}
+                    onChange={(e) => setFuelFromKm(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="label">To km *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={fuelToKm}
+                    onChange={(e) => setFuelToKm(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">Liters *</label>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  inputMode="decimal"
+                  value={fuelLiters}
+                  onChange={(e) => setFuelLiters(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-3">
         {charges.map((charge, index) => (
           <ChargeCard
@@ -544,6 +708,7 @@ export default function NewRequestForm({
             showCompassion={isCompassion}
             requireCompassionVehicle={chargeType === "truck_trailer"}
             drivers={drivers}
+            descriptionLocked={fuelActive}
             onUpdate={(patch) => updateCharge(charge.key, patch)}
             onDescriptionChange={(desc) => onChargeDescriptionChange(charge.key, desc)}
             onRemove={() => setCharges((prev) => prev.filter((c) => c.key !== charge.key))}
@@ -553,7 +718,12 @@ export default function NewRequestForm({
         <button
           type="button"
           className="flex w-full items-center justify-center gap-1.5 border border-dashed border-brand-400 bg-brand-50/50 px-3 py-2.5 text-sm font-medium text-brand-800 hover:bg-brand-50"
-          onClick={() => setCharges((prev) => [...prev, emptyCharge()])}
+          onClick={() =>
+            setCharges((prev) => [
+              ...prev,
+              fuelActive ? { ...emptyCharge(), description: FUEL_DESCRIPTION } : emptyCharge(),
+            ])
+          }
         >
           <span className="text-lg leading-none">+</span> Add new charge
         </button>
@@ -678,6 +848,15 @@ export default function NewRequestForm({
                   {!isCompassion && effectiveJobChargeType === "job" && (
                     <Row k="Job Number" v={c.jobNumber.trim() || "-"} />
                   )}
+                  {fuelActive && i === 0 && (
+                    <>
+                      <Row k="Vehicle no" v={fuelVehicleNo.trim() || "-"} />
+                      <Row k="Vehicle" v={fuelVehicleLabel.trim() || "-"} />
+                      <Row k="From km" v={fuelFromKm || "-"} />
+                      <Row k="To km" v={fuelToKm || "-"} />
+                      <Row k="Liters" v={fuelLiters || "-"} />
+                    </>
+                  )}
                   {isCompassion && (
                     <>
                       <Row k="Truck" v={c.truckNumber.trim() || "-"} />
@@ -734,6 +913,7 @@ function ChargeCard({
   showCompassion,
   requireCompassionVehicle,
   drivers,
+  descriptionLocked,
   onUpdate,
   onDescriptionChange,
   onRemove,
@@ -746,6 +926,7 @@ function ChargeCard({
   showCompassion?: boolean;
   requireCompassionVehicle?: boolean;
   drivers?: Driver[];
+  descriptionLocked?: boolean;
   onUpdate: (patch: Partial<ChargeGroup>) => void;
   onDescriptionChange: (desc: string) => void;
   onRemove: () => void;
@@ -828,7 +1009,9 @@ function ChargeCard({
 
       <div>
         <label className="label">Description</label>
-        {showCompassion ? (
+        {descriptionLocked ? (
+          <input className="input bg-slate-50" value={charge.description} readOnly />
+        ) : showCompassion ? (
           <SuggestInput
             value={charge.description}
             onChange={onDescriptionChange}

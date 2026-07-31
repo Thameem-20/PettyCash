@@ -63,6 +63,13 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     : 0;
   const requestPayload = JSON.parse(JSON.stringify(req)) as typeof req;
   const hasChargeTabs = charges.length > 0 && !isCorrectionBySubmitter;
+  const fuelInfo = charges.find(
+    (c) =>
+      c.vehicle_number != null ||
+      c.fuel_from_km != null ||
+      c.fuel_to_km != null ||
+      c.fuel_liters != null
+  );
 
   const mainContent = (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-10">
@@ -101,7 +108,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                     value={jobNumbers.join(", ")}
                   />
                 )}
-                {!hasChargeTabs && req.truck_numbers && (
+                {!hasChargeTabs && req.truck_numbers && !fuelInfo && (
                   <Detail label="Truck Number" value={req.truck_numbers} />
                 )}
                 {!hasChargeTabs && req.trailer_numbers && (
@@ -109,6 +116,25 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                 )}
                 {!hasChargeTabs && req.driver_names && (
                   <Detail label="Driver" value={req.driver_names} />
+                )}
+                {fuelInfo && (
+                  <>
+                    {(fuelInfo.vehicle_number || fuelInfo.truck_number) && (
+                      <Detail
+                        label="Vehicle No"
+                        value={fuelInfo.vehicle_number || fuelInfo.truck_number || "-"}
+                      />
+                    )}
+                    {fuelInfo.fuel_from_km != null && (
+                      <Detail label="From km" value={String(Number(fuelInfo.fuel_from_km))} />
+                    )}
+                    {fuelInfo.fuel_to_km != null && (
+                      <Detail label="To km" value={String(Number(fuelInfo.fuel_to_km))} />
+                    )}
+                    {fuelInfo.fuel_liters != null && (
+                      <Detail label="Liters" value={String(Number(fuelInfo.fuel_liters))} />
+                    )}
+                  </>
                 )}
                 {charges.length > 1 && (
                   <Detail label="Charges" value={String(charges.length)} />
@@ -142,6 +168,23 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             )}
             {req.processing_by_name && <Detail label="Processing By" value={req.processing_by_name} />}
           </div>
+
+          {fuelInfo && (fuelInfo.vehicle_label || fuelInfo.vehicle_number || fuelInfo.truck_number) && (
+            <p className="mt-4 border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              Vehicle
+              {(fuelInfo.vehicle_number || fuelInfo.truck_number) && (
+                <>
+                  : <b>{fuelInfo.vehicle_number || fuelInfo.truck_number}</b>
+                </>
+              )}
+              {fuelInfo.vehicle_label && (
+                <>
+                  {(fuelInfo.vehicle_number || fuelInfo.truck_number) ? " · " : ": "}
+                  <b>{fuelInfo.vehicle_label}</b>
+                </>
+              )}
+            </p>
+          )}
 
           {hasChargeTabs ? (
             <RequestChargeTabs

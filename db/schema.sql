@@ -12,6 +12,7 @@
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS push_subscriptions;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS app_settings;
 DROP TABLE IF EXISTS top_up_requests;
@@ -25,6 +26,7 @@ DROP TABLE IF EXISTS petty_cash_requests;
 DROP TABLE IF EXISTS expense_categories;
 DROP TABLE IF EXISTS compassion_presets;
 DROP TABLE IF EXISTS compassion_drivers;
+DROP TABLE IF EXISTS fleet_vehicles;
 DROP TABLE IF EXISTS job_code_mapping;
 DROP TABLE IF EXISTS user_cash_receiver_options;
 DROP TABLE IF EXISTS user_approval_policy_exceptions;
@@ -346,6 +348,11 @@ CREATE TABLE request_charges (
   truck_number VARCHAR(80) NULL,
   trailer_number VARCHAR(80) NULL,
   driver_id    INT NULL,
+  fuel_from_km DECIMAL(12,2) NULL,
+  fuel_to_km   DECIMAL(12,2) NULL,
+  fuel_liters  DECIMAL(12,3) NULL,
+  vehicle_number VARCHAR(80) NULL,
+  vehicle_label  VARCHAR(120) NULL,
   category_id  INT NULL,
   created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_rc_request FOREIGN KEY (request_id) REFERENCES petty_cash_requests(id) ON DELETE CASCADE,
@@ -354,7 +361,8 @@ CREATE TABLE request_charges (
   INDEX idx_rc_request (request_id),
   INDEX idx_rc_job_number (job_number),
   INDEX idx_rc_truck (truck_number),
-  INDEX idx_rc_trailer (trailer_number)
+  INDEX idx_rc_trailer (trailer_number),
+  INDEX idx_rc_vehicle (vehicle_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -485,6 +493,36 @@ CREATE TABLE top_up_requests (
 -- link ledger top_up_id after both tables exist
 ALTER TABLE cash_ledger
   ADD CONSTRAINT fk_ledger_topup FOREIGN KEY (top_up_id) REFERENCES top_up_requests(id) ON DELETE SET NULL;
+
+-- ---------------------------------------------------------------------
+-- push_subscriptions: Web Push endpoints per user/device.
+-- ---------------------------------------------------------------------
+CREATE TABLE push_subscriptions (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  user_id      INT NOT NULL,
+  endpoint     VARCHAR(512) NOT NULL,
+  p256dh       VARCHAR(255) NOT NULL,
+  auth         VARCHAR(255) NOT NULL,
+  user_agent   VARCHAR(255) NULL,
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_push_endpoint (endpoint),
+  INDEX idx_push_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- fleet_vehicles: plate + car name for fuel charge requests.
+-- ---------------------------------------------------------------------
+CREATE TABLE fleet_vehicles (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  plate_no   VARCHAR(80) NOT NULL,
+  label      VARCHAR(120) NOT NULL,
+  is_active  TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_fleet_plate (plate_no),
+  INDEX idx_fleet_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
 -- audit_logs: every meaningful mutation.

@@ -10,6 +10,7 @@ import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { PageHeader } from "@/components/page-chrome";
 import BranchPreference from "./BranchPreference";
+import PushNotifications from "./PushNotifications";
 import LogoutButton from "@/components/LogoutButton";
 
 export const dynamic = "force-dynamic";
@@ -153,6 +154,8 @@ export default async function SettingsPage() {
           No branch memberships yet. Ask an admin to assign you branches in Control Panel.
         </section>
       )}
+
+      <PushNotifications />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="text-base font-semibold text-slate-900">Account</h2>
