@@ -1,16 +1,28 @@
 import { NextResponse } from "next/server";
 import { Role, SessionUser } from "./types";
 import { getSession } from "./session";
+import { isMaintenanceMode } from "./appSettings";
 
 /** Get the session inside a route handler, or null (effective role applied). */
 export async function apiSession(): Promise<SessionUser | null> {
   return getSession();
 }
 
+function isAdminSession(session: SessionUser): boolean {
+  return session.role === "admin" || session.primary_role === "admin";
+}
+
 /** Require a session inside a route handler. Throws an ApiError if missing. */
 export async function requireApiSession(roles?: Role[]): Promise<SessionUser> {
   const session = await apiSession();
   if (!session) throw new ApiError(401, "Not authenticated");
+
+  if (await isMaintenanceMode()) {
+    if (!isAdminSession(session)) {
+      throw new ApiError(503, "The app is under maintenance.");
+    }
+  }
+
   if (roles) {
     const check = [session.role, session.primary_role].filter(Boolean) as Role[];
     if (!check.some((r) => roles.includes(r))) throw new ApiError(403, "Not authorized");

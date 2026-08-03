@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/session";
 import { navForRole, ROLE_LABELS } from "@/lib/rbac";
 import Sidebar from "@/components/Sidebar";
@@ -16,9 +17,15 @@ import {
 import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
 import { query } from "@/lib/db";
 import AutoRefresh from "@/components/AutoRefresh";
+import { isMaintenanceMode } from "@/lib/appSettings";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
+
+  if (await isMaintenanceMode()) {
+    const isAdmin = session.role === "admin" || session.primary_role === "admin";
+    if (!isAdmin) redirect("/maintenance");
+  }
 
   // Nav uses effective role; coding links from active branch profile.
   let activeCoding: "zybo" | "pcp_jv" | "none" = "zybo";
