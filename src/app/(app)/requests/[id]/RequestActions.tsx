@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import type { EnrichedRequest, RequestCharge } from "@/lib/requests";
 import type { SessionUser } from "@/lib/types";
 import { EXACT_STATUS, SUSPENSE_STATUS, OPEN_SUSPENSE_STATUSES, isStaffReimbursementRole } from "@/lib/status";
-import { money, round2 } from "@/lib/util";
+import { money, round2, formatDate } from "@/lib/util";
+import type { SuspenseReturnRow } from "@/lib/suspenseReturns";
 import ReceiptFileInput from "@/components/ReceiptFileInput";
 import ReceiptPreview from "@/components/ReceiptPreview";
 import JobNumbersInput, { JobNumbersStatus } from "@/components/JobNumbersInput";
@@ -65,6 +66,7 @@ export default function RequestActions({
   requestReceipts = [],
   initialJobNumbers = [],
   charges = [],
+  suspenseReturns = [],
 }: {
   request: EnrichedRequest;
   session: SessionUser;
@@ -72,6 +74,7 @@ export default function RequestActions({
   requestReceipts?: RequestReceipt[];
   initialJobNumbers?: string[];
   charges?: RequestCharge[];
+  suspenseReturns?: SuspenseReturnRow[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -122,6 +125,7 @@ export default function RequestActions({
   }
 
   const isSupervisor = session.role === "supervisor" || session.role === "admin";
+  const isAccSup = session.role === "accounts_supervisor" || session.role === "admin";
   const isAccounts =
     session.role === "admin" ||
     session.role === "accounts_supervisor" ||
@@ -288,6 +292,7 @@ export default function RequestActions({
             busy={busy}
             approveAndPay={isApproveAndPay}
             canEscalate={canEscalateToAccSup}
+            canEditAmount={isAccSup}
           />
         );
       } else {
@@ -298,6 +303,7 @@ export default function RequestActions({
             post={post}
             busy={busy}
             canEscalate={canEscalateToAccSup}
+            canEditAmount={isAccSup}
           />
         );
       }
@@ -307,6 +313,27 @@ export default function RequestActions({
   // ---- Suspense: upload final receipt (owner/receiver) ----
   if (isOwnerOrReceiver && s === SUSPENSE_STATUS.OPEN_SUSPENSE) {
     panels.push(<FinalReceiptPanel key="final" postForm={postForm} busy={busy} />);
+  }
+
+  // ---- Accounts: partial cash return / close when fully returned ----
+  if (isAccounts && request.request_type === "suspense" && s === SUSPENSE_STATUS.OPEN_SUSPENSE) {
+    const openOutstanding = round2(
+      Math.max(
+        0,
+        Number(request.paid_amount || 0) -
+          Number(request.returned_amount || 0) -
+          Number(request.actual_expense_amount || 0)
+      )
+    );
+    if (openOutstanding === 0 && Number(request.returned_amount || 0) > 0) {
+      panels.push(
+        <CloseFullyReturnedPanel key="close-fully-returned" post={post} busy={busy} />
+      );
+    } else {
+      panels.push(
+        <PartialReturnPanel key="partial-return" request={request} post={post} busy={busy} />
+      );
+    }
   }
 
   // ---- Accounts settlement ----
@@ -321,7 +348,7 @@ export default function RequestActions({
   }
 
   // ---- Open suspense informative panel ----
-  if (OPEN_SUSPENSE_STATUSES.includes(s)) {
+  if (OPEN_SUSPENSE_STATUSES.includes(s) || suspenseReturns.length > 0) {
     const outstanding =
       Number(request.paid_amount || 0) -
       Number(request.returned_amount || 0) -
@@ -334,6 +361,25 @@ export default function RequestActions({
         <Line k="Returned" v={money(request.returned_amount)} />
         <Line k="Additional Paid" v={money(request.additional_paid_amount)} />
         <Line k="Balance Pending" v={money(outstanding)} strong />
+        {suspenseReturns.length > 0 && (
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+              Return history
+            </p>
+            <ul className="space-y-2">
+              {suspenseReturns.map((r) => (
+                <li key={r.id} className="text-xs text-slate-600">
+                  <span className="font-medium text-slate-800">{money(r.amount)}</span>
+                  {" · "}
+                  {r.recorded_by_name}
+                  {" · "}
+                  {formatDate(r.created_at)}
+                  {r.note ? ` · ${r.note}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }
@@ -495,18 +541,23 @@ function PayPanel({
   busy,
   approveAndPay = false,
   canEscalate = false,
+  canEditAmount = false,
 }: {
   request: EnrichedRequest;
   post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
   busy: boolean;
   approveAndPay?: boolean;
   canEscalate?: boolean;
+  canEditAmount?: boolean;
 }) {
   const ctx = usePaymentAmountContext();
-  const [localPaid, setLocalPaid] = useState(String(request.approved_amount ?? request.requested_amount));
-  const paid = ctx?.mode === "pay" ? ctx.amount : localPaid;
-  const setPaid = ctx?.mode === "pay" ? ctx.setAmount : setLocalPaid;
+  const baseline = String(request.approved_amount ?? request.requested_amount);
+  const [localPaid, setLocalPaid] = useState(baseline);
+  const paid = canEditAmount && ctx?.mode === "pay" ? ctx.amount : canEditAmount ? localPaid : baseline;
+  const setPaid = canEditAmount && ctx?.mode === "pay" ? ctx.setAmount : setLocalPaid;
   const [allowNegative, setAllowNegative] = useState(false);
+  const [amountReason, setAmountReason] = useState("");
+  const amountChanged = canEditAmount && round2(Number(paid)) !== round2(Number(baseline));
   return (
     <div className="card space-y-3 p-4">
       <p className="label">{approveAndPay ? "Approve & Pay" : "Mark as Paid"}</p>
@@ -515,17 +566,42 @@ function PayPanel({
         type="number"
         step="0.01"
         value={paid}
-        onChange={(e) => setPaid(e.target.value)}
+        disabled={!canEditAmount}
+        onChange={(e) => canEditAmount && setPaid(e.target.value)}
       />
-      <label className="flex items-center gap-2 text-xs text-slate-500">
-        <input type="checkbox" checked={allowNegative} onChange={(e) => setAllowNegative(e.target.checked)} />
-        Override negative balance (Accounts Supervisor only)
-      </label>
+      {!canEditAmount && (
+        <p className="text-xs text-slate-500">
+          Amount is locked to the approved value. Only Accounts Supervisor can change it.
+        </p>
+      )}
+      {amountChanged && (
+        <div>
+          <label className="label">Reason for amount change (required)</label>
+          <input
+            className="input"
+            value={amountReason}
+            onChange={(e) => setAmountReason(e.target.value)}
+            placeholder="Why is the paid amount different?"
+          />
+        </div>
+      )}
+      {canEditAmount && (
+        <label className="flex items-center gap-2 text-xs text-slate-500">
+          <input type="checkbox" checked={allowNegative} onChange={(e) => setAllowNegative(e.target.checked)} />
+          Override negative balance (Accounts Supervisor only)
+        </label>
+      )}
       <div className="flex flex-wrap gap-2">
         <button
           className="btn-primary"
-          disabled={busy}
-          onClick={() => post("pay", { paid_amount: Number(paid), allow_negative: allowNegative })}
+          disabled={busy || (amountChanged && !amountReason.trim())}
+          onClick={() =>
+            post("pay", {
+              paid_amount: Number(paid),
+              allow_negative: allowNegative,
+              amount_reason: amountChanged ? amountReason.trim() : undefined,
+            })
+          }
         >
           {approveAndPay ? "Approve & Confirm Payment" : "Confirm Payment"}
         </button>
@@ -550,17 +626,23 @@ function IssuePanel({
   post,
   busy,
   canEscalate = false,
+  canEditAmount = false,
 }: {
   request: EnrichedRequest;
   post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
   busy: boolean;
   canEscalate?: boolean;
+  canEditAmount?: boolean;
 }) {
   const ctx = usePaymentAmountContext();
-  const [localAmount, setLocalAmount] = useState(String(request.approved_amount ?? request.requested_amount));
-  const amount = ctx?.mode === "issue" ? ctx.amount : localAmount;
-  const setAmount = ctx?.mode === "issue" ? ctx.setAmount : setLocalAmount;
+  const baseline = String(request.approved_amount ?? request.requested_amount);
+  const [localAmount, setLocalAmount] = useState(baseline);
+  const amount =
+    canEditAmount && ctx?.mode === "issue" ? ctx.amount : canEditAmount ? localAmount : baseline;
+  const setAmount = canEditAmount && ctx?.mode === "issue" ? ctx.setAmount : setLocalAmount;
   const [allowNegative, setAllowNegative] = useState(false);
+  const [amountReason, setAmountReason] = useState("");
+  const amountChanged = canEditAmount && round2(Number(amount)) !== round2(Number(baseline));
   return (
     <div className="card space-y-3 p-4">
       <p className="label">Issue Suspense Advance</p>
@@ -569,17 +651,42 @@ function IssuePanel({
         type="number"
         step="0.01"
         value={amount}
-        onChange={(e) => setAmount(e.target.value)}
+        disabled={!canEditAmount}
+        onChange={(e) => canEditAmount && setAmount(e.target.value)}
       />
-      <label className="flex items-center gap-2 text-xs text-slate-500">
-        <input type="checkbox" checked={allowNegative} onChange={(e) => setAllowNegative(e.target.checked)} />
-        Override negative balance (Accounts Supervisor only)
-      </label>
+      {!canEditAmount && (
+        <p className="text-xs text-slate-500">
+          Amount is locked to the approved value. Only Accounts Supervisor can change it.
+        </p>
+      )}
+      {amountChanged && (
+        <div>
+          <label className="label">Reason for amount change (required)</label>
+          <input
+            className="input"
+            value={amountReason}
+            onChange={(e) => setAmountReason(e.target.value)}
+            placeholder="Why is the advance amount different?"
+          />
+        </div>
+      )}
+      {canEditAmount && (
+        <label className="flex items-center gap-2 text-xs text-slate-500">
+          <input type="checkbox" checked={allowNegative} onChange={(e) => setAllowNegative(e.target.checked)} />
+          Override negative balance (Accounts Supervisor only)
+        </label>
+      )}
       <div className="flex flex-wrap gap-2">
         <button
           className="btn-primary"
-          disabled={busy}
-          onClick={() => post("issue", { amount: Number(amount), allow_negative: allowNegative })}
+          disabled={busy || (amountChanged && !amountReason.trim())}
+          onClick={() =>
+            post("issue", {
+              amount: Number(amount),
+              allow_negative: allowNegative,
+              amount_reason: amountChanged ? amountReason.trim() : undefined,
+            })
+          }
         >
           Issue Advance
         </button>
@@ -938,6 +1045,105 @@ function ResubmitPanel({
   );
 }
 
+// ---------- Close when advance fully returned (no receipt) ----------
+function CloseFullyReturnedPanel({
+  post,
+  busy,
+}: {
+  post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
+  busy: boolean;
+}) {
+  return (
+    <div className="card space-y-3 p-4">
+      <p className="label">Close suspense</p>
+      <p className="text-sm text-slate-600">
+        Outstanding balance is <b>{money(0)}</b>. The full advance has been returned. You can close
+        this suspense with no expense and without a final receipt.
+      </p>
+      <button
+        className="btn-success"
+        disabled={busy}
+        onClick={() => post("close-fully-returned", {})}
+      >
+        Close as Fully Returned
+      </button>
+    </div>
+  );
+}
+
+// ---------- Partial cash return (open suspense) ----------
+function PartialReturnPanel({
+  request,
+  post,
+  busy,
+}: {
+  request: EnrichedRequest;
+  post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const outstanding = round2(
+    Math.max(
+      0,
+      Number(request.paid_amount || 0) -
+        Number(request.returned_amount || 0) -
+        Number(request.actual_expense_amount || 0)
+    )
+  );
+  const value = Number(amount);
+  const valid = value > 0 && value <= outstanding;
+
+  if (outstanding <= 0) return null;
+
+  return (
+    <div className="card space-y-3 p-4">
+      <p className="label">Partial cash return</p>
+      <p className="text-sm text-slate-600">
+        Outstanding advance: <b>{money(outstanding)}</b>. Record cash returned now; the suspense
+        stays open until final settlement (or close when the balance reaches zero).
+      </p>
+      <div>
+        <label className="label">Amount returned</label>
+        <input
+          className="input"
+          type="number"
+          step="0.01"
+          min="0.01"
+          max={outstanding}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="label">Note (optional)</label>
+        <input
+          className="input"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. first installment"
+        />
+      </div>
+      <button
+        className="btn-primary"
+        disabled={busy || !valid}
+        onClick={async () => {
+          const ok = await post("partial-return", {
+            amount: value,
+            note: note.trim() || undefined,
+          });
+          if (ok) {
+            setAmount("");
+            setNote("");
+          }
+        }}
+      >
+        Record Partial Return
+      </button>
+    </div>
+  );
+}
+
 // ---------- Final receipt upload ----------
 function FinalReceiptPanel({
   postForm,
@@ -984,6 +1190,7 @@ function SettlePanel({
 }) {
   const ctx = usePaymentAmountContext();
   const advance = Number(request.paid_amount || 0);
+  const alreadyReturned = Number(request.returned_amount || 0);
   const [localActual, setLocalActual] = useState("");
   const [chargeActuals, setChargeActuals] = useState<Record<number, string>>(() =>
     Object.fromEntries(charges.map((c) => [c.id, ""]))
@@ -1012,7 +1219,8 @@ function SettlePanel({
   }, [usePerCharge, allChargesFilled, actualTotal, setCtxAmount]);
 
   const setActual = setCtxAmount ?? setLocalActual;
-  const diff = advance - actualTotal; // positive -> returned, negative -> additional payable
+  // remaining after prior partial returns: positive -> return now, negative -> additional payable
+  const remaining = round2(advance - actualTotal - alreadyReturned);
 
   function updateChargeActual(chargeId: number, value: string) {
     setChargeActuals((prev) => ({ ...prev, [chargeId]: value }));
@@ -1038,7 +1246,14 @@ function SettlePanel({
   return (
     <div className="card space-y-3 p-4">
       <p className="label">Settle Suspense</p>
-      <p className="text-sm text-slate-600">Advance issued: {money(advance)}</p>
+      <p className="text-sm text-slate-600">
+        Advance issued: {money(advance)}
+        {alreadyReturned > 0 && (
+          <>
+            {" · "}Already returned: {money(alreadyReturned)}
+          </>
+        )}
+      </p>
 
       {usePerCharge ? (
         <div className="space-y-3">
@@ -1091,20 +1306,24 @@ function SettlePanel({
 
       {actualDisplay !== "" && (
         <div className="rounded-lg bg-slate-50 p-3 text-sm">
-          {diff > 0 ? (
+          {remaining > 0 ? (
             <p className="text-emerald-700">
-              Messenger returns <b>{money(diff)}</b> to accounts.
+              Messenger returns <b>{money(remaining)}</b> to accounts
+              {alreadyReturned > 0 ? " (after prior returns)" : ""}.
             </p>
-          ) : diff < 0 ? (
+          ) : remaining < 0 ? (
             <p className="text-amber-700">
-              Accounts pays additional <b>{money(-diff)}</b> to messenger.
+              Accounts pays additional <b>{money(-remaining)}</b> to messenger.
             </p>
           ) : (
-            <p className="text-slate-700">Fully settled. Nothing to return.</p>
+            <p className="text-slate-700">
+              Fully settled
+              {alreadyReturned > 0 ? " with prior returns" : ""}. Nothing further to return.
+            </p>
           )}
         </div>
       )}
-      {diff < 0 && actualDisplay !== "" && (
+      {remaining < 0 && actualDisplay !== "" && (
         <label className="flex items-center gap-2 text-xs text-slate-500">
           <input type="checkbox" checked={allowNegative} onChange={(e) => setAllowNegative(e.target.checked)} />
           Override negative balance (Accounts Supervisor only)

@@ -7,13 +7,14 @@ import { postLedger } from "@/lib/ledger";
 import { auditTx } from "@/lib/audit";
 import { EXACT_STATUS } from "@/lib/status";
 import { isElevated } from "@/lib/rbac";
+import { round2 } from "@/lib/util";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireApiSession(["accounts", "accounts_supervisor", "admin"]);
     const id = Number(params.id);
-    const { paid_amount, allow_negative } = await req.json();
-    const amount = Number(paid_amount);
+    const { paid_amount, allow_negative, amount_reason } = await req.json();
+    const requestedPay = Number(paid_amount);
 
     const request = await queryOne<PettyCashRequest>("SELECT * FROM petty_cash_requests WHERE id = ?", [id]);
     if (!request) throw new ApiError(404, "Request not found");
@@ -24,16 +25,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       throw new ApiError(status, payErr);
     }
 
+    const approvedBaseline = round2(Number(request.approved_amount ?? request.requested_amount));
+    const elevated = isElevated(session.role);
+    let amount = round2(requestedPay);
+    if (!elevated) {
+      // Regular accounts must pay the approved amount; only Acc Sup/admin may alter.
+      amount = approvedBaseline;
+    } else if (amount !== approvedBaseline) {
+      const reason = String(amount_reason || "").trim();
+      if (!reason) {
+        throw new ApiError(400, "A reason is required when changing the payment amount.");
+      }
+    }
+
     if (!(amount > 0)) throw new ApiError(400, "Paid amount must be positive.");
 
     if (request.processing_by_user_id && request.processing_by_user_id !== session.id) {
       throw new ApiError(409, "Being processed by another accounts user.");
     }
 
-    const allowNeg = Boolean(allow_negative) && isElevated(session.role);
+    const allowNeg = Boolean(allow_negative) && elevated;
     const isAccSupApprovePay =
       request.submitter_role === "accounts" &&
       (session.role === "accounts_supervisor" || session.role === "admin");
+    const amountEdited = elevated && amount !== approvedBaseline;
 
     await withTransaction(async (conn) => {
       await postLedger(conn, {
@@ -46,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         allowNegative: allowNeg,
       });
 
-      const approvedAmount = request.approved_amount ?? amount;
+      const approvedAmount = amount;
 
       await conn.execute(
         `UPDATE petty_cash_requests
@@ -58,15 +73,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         [EXACT_STATUS.AWAITING_RECEIVER, amount, approvedAmount, session.id, session.id, id]
       );
 
+      const payComment = isAccSupApprovePay
+        ? "Approved and marked as paid"
+        : "Marked as paid";
       await conn.execute(
-        `INSERT INTO approvals (request_id, approver_user_id, approval_level, action, comments, new_amount)
-         VALUES (?,?,?,?,?,?)`,
+        `INSERT INTO approvals (request_id, approver_user_id, approval_level, action, comments, old_amount, new_amount)
+         VALUES (?,?,?,?,?,?,?)`,
         [
           id,
           session.id,
-          isAccSupApprovePay ? "accounts_supervisor" : "accounts",
-          isAccSupApprovePay ? "approve_pay" : "pay",
-          isAccSupApprovePay ? "Approved and marked as paid" : "Marked as paid",
+          isAccSupApprovePay || amountEdited ? "accounts_supervisor" : "accounts",
+          isAccSupApprovePay ? "approve_pay" : amountEdited ? "edit_amount" : "pay",
+          amountEdited
+            ? `${payComment} · Amount changed: ${String(amount_reason || "").trim()}`
+            : payComment,
+          amountEdited ? approvedBaseline : null,
           amount,
         ]
       );

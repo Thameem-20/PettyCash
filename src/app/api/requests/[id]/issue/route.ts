@@ -7,13 +7,14 @@ import { postLedger } from "@/lib/ledger";
 import { auditTx } from "@/lib/audit";
 import { SUSPENSE_STATUS } from "@/lib/status";
 import { isElevated } from "@/lib/rbac";
+import { round2 } from "@/lib/util";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireApiSession(["accounts", "accounts_supervisor", "admin"]);
     const id = Number(params.id);
-    const { amount: rawAmount, allow_negative } = await req.json();
-    const amount = Number(rawAmount);
+    const { amount: rawAmount, allow_negative, amount_reason } = await req.json();
+    const requestedIssue = Number(rawAmount);
 
     const request = await queryOne<PettyCashRequest>("SELECT * FROM petty_cash_requests WHERE id = ?", [id]);
     if (!request) throw new ApiError(404, "Request not found");
@@ -22,11 +23,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (request.status !== SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE)
       throw new ApiError(409, `Request is not ready to issue advance (status: ${request.status}).`);
     if (request.approved_amount == null) throw new ApiError(409, "Request has not been approved.");
+
+    const approvedBaseline = round2(Number(request.approved_amount));
+    const elevated = isElevated(session.role);
+    let amount = round2(requestedIssue);
+    if (!elevated) {
+      amount = approvedBaseline;
+    } else if (amount !== approvedBaseline) {
+      const reason = String(amount_reason || "").trim();
+      if (!reason) {
+        throw new ApiError(400, "A reason is required when changing the advance amount.");
+      }
+    }
+
     if (!(amount > 0)) throw new ApiError(400, "Advance amount must be positive.");
     if (request.processing_by_user_id && request.processing_by_user_id !== session.id)
       throw new ApiError(409, "Being processed by another accounts user.");
 
-    const allowNeg = Boolean(allow_negative) && isElevated(session.role);
+    const allowNeg = Boolean(allow_negative) && elevated;
+    const amountEdited = elevated && amount !== approvedBaseline;
 
     await withTransaction(async (conn) => {
       await postLedger(conn, {
@@ -40,14 +55,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
 
       await conn.execute(
-        "UPDATE petty_cash_requests SET status = ?, paid_amount = ?, accounts_user_id = ?, processing_by_user_id = ?, paid_at = NOW() WHERE id = ?",
-        [SUSPENSE_STATUS.AWAITING_CASH_RECEIPT, amount, session.id, session.id, id]
+        `UPDATE petty_cash_requests
+            SET status = ?, paid_amount = ?, approved_amount = ?,
+                accounts_user_id = ?, processing_by_user_id = ?, paid_at = NOW()
+          WHERE id = ?`,
+        [SUSPENSE_STATUS.AWAITING_CASH_RECEIPT, amount, amount, session.id, session.id, id]
       );
 
       await conn.execute(
-        `INSERT INTO approvals (request_id, approver_user_id, approval_level, action, comments, new_amount)
-         VALUES (?,?,?,?,?,?)`,
-        [id, session.id, "accounts", "issue", "Suspense advance issued", amount]
+        `INSERT INTO approvals (request_id, approver_user_id, approval_level, action, comments, old_amount, new_amount)
+         VALUES (?,?,?,?,?,?,?)`,
+        [
+          id,
+          session.id,
+          amountEdited ? "accounts_supervisor" : "accounts",
+          amountEdited ? "edit_amount" : "issue",
+          amountEdited
+            ? `Suspense advance issued · Amount changed: ${String(amount_reason || "").trim()}`
+            : "Suspense advance issued",
+          amountEdited ? approvedBaseline : null,
+          amount,
+        ]
       );
 
       await auditTx(conn, {

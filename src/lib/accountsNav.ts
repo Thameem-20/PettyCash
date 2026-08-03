@@ -5,6 +5,12 @@ import {
   countPendingPcpJv,
 } from "./requests";
 import { branchIdsWithCodingType } from "./branchProfile";
+import {
+  allowAllBranchesForRole,
+  resolveBranchScope,
+  scopeIdsFrom,
+  type AccountsBranch,
+} from "./accountsBranch";
 import type { AccountsNavBadges } from "./accountsNavBadges";
 
 export type { AccountsNavBadges } from "./accountsNavBadges";
@@ -15,21 +21,38 @@ export async function getAccountsNavBadges(session: {
   id: number;
   role: string;
   primary_role?: string;
+  preferred_branch_param?: string;
 }): Promise<AccountsNavBadges | null> {
   const role = session.primary_role || session.role;
   if (!ACCOUNTS_NAV_ROLES.has(role) && !ACCOUNTS_NAV_ROLES.has(session.role)) return null;
 
-  let branchIds: number[];
+  let branchList: AccountsBranch[];
   if (session.role === "accounts" || role === "accounts") {
-    branchIds = await accountsBranchIds(session.id);
+    const ids = await accountsBranchIds(session.id);
+    branchList = ids.length
+      ? await query(
+          "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) ORDER BY branch_name",
+          [ids]
+        )
+      : [];
   } else {
-    const rows = await query<{ id: number }>("SELECT id FROM branches WHERE is_active = 1");
-    branchIds = rows.map((r) => r.id);
+    branchList = await query(
+      "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
+    );
   }
 
+  if (branchList.length === 0) {
+    return { pendingZyboVoucher: 0, pendingPcpJv: 0 };
+  }
+
+  // Match accounts pages: badge counts follow the currently selected branch (or all).
+  const allowAll = allowAllBranchesForRole(role);
+  const scope = resolveBranchScope(session.preferred_branch_param, branchList, allowAll);
+  const scopeIds = scopeIdsFrom(scope);
+
   const [zyboIds, pcpIds] = await Promise.all([
-    branchIdsWithCodingType("zybo", branchIds),
-    branchIdsWithCodingType("pcp_jv", branchIds),
+    branchIdsWithCodingType("zybo", scopeIds),
+    branchIdsWithCodingType("pcp_jv", scopeIds),
   ]);
 
   const [pendingZyboVoucher, pendingPcpJv] = await Promise.all([

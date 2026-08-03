@@ -33,6 +33,7 @@ const TABS = [
   { key: "open_suspense", label: "Open Suspense" },
   { key: "settlement_pending", label: "Settlement Pending" },
   { key: "returned", label: "Returned Cash" },
+  { key: "partial_returns", label: "Partial Returns" },
   { key: "balance", label: "Branch Cash Balance" },
 ] as const;
 
@@ -58,7 +59,7 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
       ? [...branchParams, ...ACCOUNTS_PENDING_STATUSES]
       : [...branchParams, ...ACCOUNTS_PENDING_STATUSES, EXACT_STATUS.PENDING_ACC_SUP];
 
-  const [pending, paidToday, openSusp, settlement, returned] = await Promise.all([
+  const [pending, paidToday, openSusp, settlement, returned, partialReturns] = await Promise.all([
     tabCount(`SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${pendingWhere}`, pendingParams),
     tabCount(
       `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND DATE(paid_at) = CURDATE()`,
@@ -76,9 +77,25 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
       `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND returned_amount IS NOT NULL AND returned_amount > 0`,
       branchParams
     ),
+    // Still-open suspense with at least one partial return recorded.
+    tabCount(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests
+        WHERE ${branchSql}
+          AND status IN (${phSusp})
+          AND returned_amount IS NOT NULL AND returned_amount > 0
+          AND EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = petty_cash_requests.id)`,
+      [...branchParams, ...OPEN_SUSPENSE_STATUSES]
+    ),
   ]);
 
-  return { pending, paid_today: paidToday, open_suspense: openSusp, settlement_pending: settlement, returned };
+  return {
+    pending,
+    paid_today: paidToday,
+    open_suspense: openSusp,
+    settlement_pending: settlement,
+    returned,
+    partial_returns: partialReturns,
+  };
 }
 
 export default async function AccountsPage({
@@ -156,6 +173,13 @@ export default async function AccountsPage({
     } else if (tab === "returned") {
       where = `r.branch_id IN (${phScope}) AND r.returned_amount IS NOT NULL AND r.returned_amount > 0`;
       params = scopeIds;
+    } else if (tab === "partial_returns") {
+      const phStat = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
+      where = `r.branch_id IN (${phScope})
+        AND r.status IN (${phStat})
+        AND r.returned_amount IS NOT NULL AND r.returned_amount > 0
+        AND EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = r.id)`;
+      params = [...scopeIds, ...OPEN_SUSPENSE_STATUSES];
     }
 
     const total = await countRequestsWhere(where, params);
@@ -240,8 +264,10 @@ export default async function AccountsPage({
             showBranch={scope.all}
             emptyMessage="Nothing here right now."
             usePaidAmount={tab === "paid_today"}
-            useReturnedAmount={tab === "returned"}
-            amountLabel={tab === "returned" ? "Returned" : "Amount"}
+            useReturnedAmount={tab === "returned" || tab === "partial_returns"}
+            amountLabel={
+              tab === "returned" || tab === "partial_returns" ? "Returned" : "Amount"
+            }
           />
           <Pagination meta={listMeta} />
         </>

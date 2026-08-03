@@ -142,7 +142,7 @@ async function FieldStaffDashboard({ userId }: { userId: number }) {
 }
 
 async function SupervisorDashboard({ userId }: { userId: number }) {
-  const pendingWhere = `(supervisor_id = ? OR supervisor_id IS NULL) AND status = ?`;
+  const pendingWhere = `supervisor_id = ? AND status = ?`;
   const [pendingExact, pendingSusp, approved, breakdown, trend] = await Promise.all([
     countWhere(`${pendingWhere} AND request_type = 'exact'`, [
       userId,
@@ -153,7 +153,13 @@ async function SupervisorDashboard({ userId }: { userId: number }) {
       SUSPENSE_STATUS.PENDING_SUPERVISOR,
     ]),
     countWhere(
-      "supervisor_id = ? AND approved_at IS NOT NULL AND status NOT IN (?, ?, ?, ?)",
+      `EXISTS (
+         SELECT 1 FROM approvals a
+          WHERE a.request_id = petty_cash_requests.id
+            AND a.approver_user_id = ?
+            AND a.approval_level = 'supervisor'
+            AND a.action IN ('approve', 'edit_amount')
+       ) AND status NOT IN (?, ?, ?, ?)`,
       [
         userId,
         EXACT_STATUS.PENDING_SUPERVISOR,
@@ -242,10 +248,15 @@ async function BranchAccountsDashboard({
   const branchQ = branchScopeQuery(scope);
   const { sql: branchSql, params: branchParams } = branchIdInSql(scopeIds);
 
+  // Acc Sup / admin must also see accounts-staff requests awaiting Acc Sup approval.
+  const pendingStatuses = allowAll
+    ? [...ACCOUNTS_PENDING_STATUSES, EXACT_STATUS.PENDING_ACC_SUP]
+    : ACCOUNTS_PENDING_STATUSES;
+
   const [pendingPay, openSusp, paidToday, pendingZyboVc, cash, queueData, trendData, branchData] = await Promise.all([
     countWhere(
-      `${branchSql} AND status IN (${ACCOUNTS_PENDING_STATUSES.map(() => "?").join(",")})`,
-      [...branchParams, ...ACCOUNTS_PENDING_STATUSES]
+      `${branchSql} AND status IN (${pendingStatuses.map(() => "?").join(",")})`,
+      [...branchParams, ...pendingStatuses]
     ),
     countWhere(
       `${branchSql} AND status IN (${OPEN_SUSPENSE_STATUSES.map(() => "?").join(",")})`,
@@ -258,7 +269,7 @@ async function BranchAccountsDashboard({
         .filter((b) => scopeIds.includes(b.branchId))
         .reduce((sum, b) => sum + b.cashInHand, 0)
     ),
-    accountsProcessingQueueChart(scopeIds),
+    accountsProcessingQueueChart(scopeIds, { includeAccSupPending: allowAll }),
     paymentTrend(7, scopeIds),
     branchCashChart(scopeIds),
   ]);
@@ -266,7 +277,13 @@ async function BranchAccountsDashboard({
   return (
     <>
       <div className="grid auto-rows-fr grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 xl:grid-cols-5">
-        <StatCard label="Pending for Payment" value={pendingPay} tone="warn" href={`/accounts?${branchQ}`} icon={<Clock />} />
+        <StatCard
+          label="Pending for Payment"
+          value={pendingPay}
+          tone="warn"
+          href={`/accounts?tab=pending&${branchQ}`}
+          icon={<Clock />}
+        />
         <StatCard
           label="Open Suspense"
           value={openSusp}

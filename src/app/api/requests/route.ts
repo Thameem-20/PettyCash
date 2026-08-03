@@ -21,8 +21,8 @@ import {
   listBranchProfiles,
 } from "@/lib/branchProfile";
 import {
-  findBranchSupervisorUserId,
   resolveRoleForBranch,
+  resolveRequestSupervisor,
 } from "@/lib/branchMembership";
 import {
   createStateFromApprovalPath,
@@ -366,7 +366,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const supervisorId = await resolveRequestSupervisorId(
+    const { supervisorId } = await resolveRequestSupervisor(
       session.id,
       branchId,
       profile?.default_supervisor_user_id ?? null
@@ -593,26 +593,4 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return fail(err);
   }
-}
-
-async function resolveRequestSupervisorId(
-  userId: number,
-  branchId: number,
-  profileSupervisorId: number | null
-): Promise<number | null> {
-  if (profileSupervisorId) return profileSupervisorId;
-
-  const u = await queryOne<{ supervisor_id: number | null }>(
-    "SELECT supervisor_id FROM users WHERE id = ?",
-    [userId]
-  );
-  if (u?.supervisor_id) return u.supervisor_id;
-
-  const branchSup = await findBranchSupervisorUserId(branchId);
-  if (branchSup) return branchSup;
-
-  const sup = await queryOne<{ id: number }>(
-    "SELECT id FROM users WHERE role = 'supervisor' AND is_active = 1 ORDER BY id LIMIT 1"
-  );
-  return sup?.id ?? null;
 }

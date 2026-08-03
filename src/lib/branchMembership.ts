@@ -112,6 +112,83 @@ export async function findBranchSupervisorUserId(branchId: number): Promise<numb
   return row?.user_id ?? null;
 }
 
+export interface SupervisorResolution {
+  supervisorId: number | null;
+  /** Which rule decided the supervisor, for display/debugging (Flow page). */
+  source: "personal_supervisor" | "branch_profile_default" | "branch_membership" | "any_supervisor" | "none";
+  /** The user's personal supervisor_id, if set (even if it wasn't used). */
+  personalSupervisorId: number | null;
+  /** True when the personal supervisor exists but has no supervisor membership on this branch. */
+  personalSupervisorInvalidForBranch: boolean;
+}
+
+/**
+ * Resolve who should approve a request for userId on branchId.
+ *
+ * Priority:
+ *  1. The user's personal supervisor (users.supervisor_id) — but ONLY if that
+ *     supervisor actually has a 'supervisor' membership on this branch. This
+ *     lets a personally-assigned supervisor follow their people across
+ *     branches without stealing requests they have no authority over.
+ *  2. The branch's configured default supervisor (branch_profiles).
+ *  3. Any user with a 'supervisor' membership on this branch.
+ *  4. Any active supervisor in the system (last-resort fallback).
+ */
+export async function resolveRequestSupervisor(
+  userId: number,
+  branchId: number,
+  profileSupervisorId: number | null
+): Promise<SupervisorResolution> {
+  const u = await queryOne<{ supervisor_id: number | null }>(
+    "SELECT supervisor_id FROM users WHERE id = ?",
+    [userId]
+  );
+  const personalSupervisorId = u?.supervisor_id ?? null;
+
+  let personalSupervisorInvalidForBranch = false;
+  if (personalSupervisorId) {
+    const role = await getUserRoleForBranch(personalSupervisorId, branchId);
+    if (role === "supervisor") {
+      return {
+        supervisorId: personalSupervisorId,
+        source: "personal_supervisor",
+        personalSupervisorId,
+        personalSupervisorInvalidForBranch: false,
+      };
+    }
+    personalSupervisorInvalidForBranch = true;
+  }
+
+  if (profileSupervisorId) {
+    return {
+      supervisorId: profileSupervisorId,
+      source: "branch_profile_default",
+      personalSupervisorId,
+      personalSupervisorInvalidForBranch,
+    };
+  }
+
+  const branchSup = await findBranchSupervisorUserId(branchId);
+  if (branchSup) {
+    return {
+      supervisorId: branchSup,
+      source: "branch_membership",
+      personalSupervisorId,
+      personalSupervisorInvalidForBranch,
+    };
+  }
+
+  const sup = await queryOne<{ id: number }>(
+    "SELECT id FROM users WHERE role = 'supervisor' AND is_active = 1 ORDER BY id LIMIT 1"
+  );
+  return {
+    supervisorId: sup?.id ?? null,
+    source: sup?.id ? "any_supervisor" : "none",
+    personalSupervisorId,
+    personalSupervisorInvalidForBranch,
+  };
+}
+
 export type WorkspaceBranch = {
   id: number;
   branch_name: string;

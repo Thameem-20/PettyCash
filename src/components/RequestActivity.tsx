@@ -19,12 +19,15 @@ const ACTION_LABELS: Record<string, string> = {
   escalate_accounts_supervisor: "Sent to Accounts Supervisor",
   reject: "Rejected",
   return: "Returned for correction",
-  edit_amount: "Edited approved amount",
+  edit_amount: "Amount edited",
   branch_override: "Branch override",
   issue: "Suspense issued",
   pay: "Marked as paid",
   confirm_receipt: "Confirmed cash received",
   settle: "Suspense settled",
+  partial_return: "Partial cash returned",
+  close_fully_returned: "Closed as fully returned",
+  amend: "Request amended",
   resubmit: "Resubmitted for approval",
 };
 
@@ -63,11 +66,13 @@ export default function RequestActivity({ items }: { items: RequestActivityItem[
               <p className="text-xs text-muted-foreground">
                 {item.actor} · {labelLevel(item.level)}
               </p>
-              {item.old_amount != null && item.new_amount != null && (
+              {item.old_amount != null && item.new_amount != null ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {money(item.old_amount)} → {money(item.new_amount)}
                 </p>
-              )}
+              ) : item.new_amount != null && item.action === "partial_return" ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">{money(item.new_amount)}</p>
+              ) : null}
               {item.comments && <p className="mt-1 text-xs text-muted-foreground">{item.comments}</p>}
               <p className="mt-1 text-[11px] text-muted-foreground">{formatDate(item.created_at)}</p>
             </div>

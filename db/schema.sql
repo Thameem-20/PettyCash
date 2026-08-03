@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS top_up_requests;
 DROP TABLE IF EXISTS bank_accounts;
 DROP TABLE IF EXISTS cash_ledger;
 DROP TABLE IF EXISTS approvals;
+DROP TABLE IF EXISTS suspense_returns;
 DROP TABLE IF EXISTS receipts;
 DROP TABLE IF EXISTS request_charges;
 DROP TABLE IF EXISTS request_job_numbers;
@@ -404,6 +405,23 @@ CREATE TABLE approvals (
   CONSTRAINT fk_appr_request  FOREIGN KEY (request_id)       REFERENCES petty_cash_requests(id) ON DELETE CASCADE,
   CONSTRAINT fk_appr_approver FOREIGN KEY (approver_user_id) REFERENCES users(id),
   INDEX idx_appr_request (request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- suspense_returns: partial cash returns while a suspense stays open.
+-- petty_cash_requests.returned_amount is kept as the running total.
+-- ---------------------------------------------------------------------
+CREATE TABLE suspense_returns (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  request_id      INT NOT NULL,
+  amount          DECIMAL(12,2) NOT NULL,
+  note            VARCHAR(500) NULL,
+  recorded_by_user_id INT NOT NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_sr_request FOREIGN KEY (request_id) REFERENCES petty_cash_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sr_user FOREIGN KEY (recorded_by_user_id) REFERENCES users(id),
+  INDEX idx_sr_request (request_id),
+  INDEX idx_sr_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

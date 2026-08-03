@@ -107,16 +107,18 @@ export function AccountsPaymentProvider({
   const { afterBalance, paymentDelta } = useMemo(() => {
     if (mode === "settle") {
       const advance = Number(request.paid_amount || 0);
+      const alreadyReturned = Number(request.returned_amount || 0);
       const actual = Number(amount || 0);
       if (!amount.trim()) {
         return { afterBalance: cashInHand, paymentDelta: 0 };
       }
-      const diff = advance - actual;
-      return { afterBalance: cashInHand + diff, paymentDelta: diff };
+      // Cash movement at settlement after any prior partial returns.
+      const remaining = advance - actual - alreadyReturned;
+      return { afterBalance: cashInHand + remaining, paymentDelta: remaining };
     }
     const paid = Number(amount || 0);
     return { afterBalance: cashInHand - paid, paymentDelta: -paid };
-  }, [amount, cashInHand, mode, request.paid_amount]);
+  }, [amount, cashInHand, mode, request.paid_amount, request.returned_amount]);
 
   return (
     <PaymentAmountContext.Provider value={{ amount, setAmount, mode }}>

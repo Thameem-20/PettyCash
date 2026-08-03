@@ -33,7 +33,7 @@ export async function getFieldStaffNavBadges(userId: number): Promise<FieldStaff
     ),
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE (supervisor_id = ? OR supervisor_id IS NULL)
+        WHERE supervisor_id = ?
           AND status IN (?, ?)`,
       [userId, EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR]
     ),

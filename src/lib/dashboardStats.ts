@@ -31,6 +31,7 @@ function dayLabel(iso: string): string {
 function shortStatus(status: string): string {
   return status
     .replace("Pending Supervisor Approval", "Pending Sup.")
+    .replace("Pending Accounts Supervisor Approval", "Pending Acc Sup")
     .replace("Pending Accounts Review", "Pending Acct.")
     .replace("Pending Accounts Issue", "Pending Issue")
     .replace("Awaiting Receiver Confirmation", "Awaiting Confirm")
@@ -74,37 +75,95 @@ export async function supervisorApprovalBreakdown(
   userId: number,
   isAdmin: boolean
 ): Promise<ChartPoint[]> {
-  const base = isAdmin ? "" : "AND supervisor_id = ?";
-  const params = isAdmin ? [] : [userId];
-  const rows = await query<{ bucket: string; c: number }>(
-    `SELECT
-       CASE
-         WHEN status IN ('Pending Supervisor Approval') THEN 'Pending'
-         WHEN status IN ('Rejected') THEN 'Rejected'
-         WHEN status IN ('Returned for Correction') THEN 'Returned'
-         WHEN approved_at IS NOT NULL THEN 'Approved'
-         ELSE 'Other'
-       END AS bucket,
-       COUNT(*) AS c
-     FROM petty_cash_requests
-     WHERE 1=1 ${base}
-     GROUP BY bucket
-     ORDER BY c DESC`,
-    params
-  );
-  const order = ["Pending", "Approved", "Returned", "Rejected", "Other"];
-  const sorted = order
-    .map((label) => rows.find((r) => r.bucket === label))
-    .filter(Boolean) as { bucket: string; c: number }[];
-  return sorted.map((r, i) => ({
-    label: r.bucket,
-    value: Number(r.c),
-    color: CHART_COLORS[i % CHART_COLORS.length],
-  }));
+  if (isAdmin) {
+    const rows = await query<{ bucket: string; c: number }>(
+      `SELECT
+         CASE
+           WHEN status IN ('Pending Supervisor Approval') THEN 'Pending'
+           WHEN status IN ('Rejected') THEN 'Rejected'
+           WHEN status IN ('Returned for Correction') THEN 'Returned'
+           WHEN approved_at IS NOT NULL THEN 'Approved'
+           ELSE 'Other'
+         END AS bucket,
+         COUNT(*) AS c
+       FROM petty_cash_requests
+       GROUP BY bucket
+       HAVING bucket <> 'Other'
+       ORDER BY c DESC`
+    );
+    const order = ["Pending", "Approved", "Returned", "Rejected"];
+    return order
+      .map((label, i) => {
+        const row = rows.find((r) => r.bucket === label);
+        return row
+          ? { label, value: Number(row.c), color: CHART_COLORS[i % CHART_COLORS.length] }
+          : null;
+      })
+      .filter(Boolean) as ChartPoint[];
+  }
+
+  const approvedSql = `EXISTS (
+    SELECT 1 FROM approvals a
+     WHERE a.request_id = petty_cash_requests.id
+       AND a.approver_user_id = ?
+       AND a.approval_level = 'supervisor'
+       AND a.action IN ('approve', 'edit_amount')
+  )`;
+  const rejectedSql = `EXISTS (
+    SELECT 1 FROM approvals a
+     WHERE a.request_id = petty_cash_requests.id
+       AND a.approver_user_id = ?
+       AND a.approval_level = 'supervisor'
+       AND a.action = 'reject'
+  )`;
+  const returnedSql = `EXISTS (
+    SELECT 1 FROM approvals a
+     WHERE a.request_id = petty_cash_requests.id
+       AND a.approver_user_id = ?
+       AND a.approval_level = 'supervisor'
+       AND a.action = 'return'
+  )`;
+
+  const [pending, approved, returned, rejected] = await Promise.all([
+    queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests
+        WHERE supervisor_id = ? AND status = 'Pending Supervisor Approval'`,
+      [userId]
+    ),
+    queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${approvedSql}`,
+      [userId]
+    ),
+    queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests
+        WHERE status = 'Returned for Correction' AND ${returnedSql}`,
+      [userId]
+    ),
+    queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests
+        WHERE status = 'Rejected' AND ${rejectedSql}`,
+      [userId]
+    ),
+  ]);
+
+  return [
+    { label: "Pending", value: Number(pending?.c || 0), color: CHART_COLORS[0] },
+    { label: "Approved", value: Number(approved?.c || 0), color: CHART_COLORS[1] },
+    { label: "Returned", value: Number(returned?.c || 0), color: CHART_COLORS[2] },
+    { label: "Rejected", value: Number(rejected?.c || 0), color: CHART_COLORS[3] },
+  ].filter((r) => r.value > 0);
 }
 
 export async function supervisorWeeklyTrend(userId: number, isAdmin: boolean): Promise<ChartPoint[]> {
-  const base = isAdmin ? "" : "AND supervisor_id = ?";
+  const base = isAdmin
+    ? ""
+    : `AND EXISTS (
+         SELECT 1 FROM approvals a
+          WHERE a.request_id = petty_cash_requests.id
+            AND a.approver_user_id = ?
+            AND a.approval_level = 'supervisor'
+            AND a.action IN ('approve', 'edit_amount')
+       )`;
   const params = isAdmin ? [6] : [6, userId];
   const rows = await query<{ d: string; c: number }>(
     `SELECT DATE(approved_at) AS d, COUNT(*) AS c
@@ -208,20 +267,32 @@ export async function paymentTrend(days = 7, branchIds?: number[]): Promise<Char
 
 const PAID_SLICE_COLOR = "#10b981";
 
-export async function accountsProcessingQueueChart(branchIds: number[]): Promise<ChartPoint[]> {
+export async function accountsProcessingQueueChart(
+  branchIds: number[],
+  opts?: { includeAccSupPending?: boolean }
+): Promise<ChartPoint[]> {
   if (branchIds.length === 0) return [];
   const ph = branchIds.map(() => "?").join(",");
+  const statuses = [
+    "Pending Payment",
+    "Pending Accounts Review",
+    "Pending Accounts Issue",
+    ...(opts?.includeAccSupPending ? ["Pending Accounts Supervisor Approval"] : []),
+    "Open Suspense",
+    "Receipt Submitted",
+    "Pending Settlement Review",
+  ];
+  const statusPh = statuses.map(() => "?").join(",");
 
   const [queueRows, paidRow] = await Promise.all([
     query<{ label: string; value: number }>(
       `SELECT status AS label, COUNT(*) AS value
          FROM petty_cash_requests
         WHERE branch_id IN (${ph})
-          AND status IN ('Pending Payment','Pending Accounts Review','Pending Accounts Issue',
-                         'Open Suspense','Receipt Submitted','Pending Settlement Review')
+          AND status IN (${statusPh})
         GROUP BY status
         ORDER BY value DESC`,
-      branchIds
+      [...branchIds, ...statuses]
     ),
     queryOne<{ value: number }>(
       `SELECT COUNT(*) AS value

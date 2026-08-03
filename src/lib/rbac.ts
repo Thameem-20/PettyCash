@@ -58,6 +58,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/treasury", label: "Treasury", roles: ["treasury"] },
   { href: "/reports", label: "Reports", roles: ["accounts", "accounts_supervisor", "treasury", "admin"] },
   { href: "/admin/control-panel", label: "Control Panel", roles: ["admin"] },
+  { href: "/admin/flow", label: "Flow", roles: ["admin"] },
   { href: "/admin/branches", label: "Branches", roles: ["admin"] },
   { href: "/admin/categories", label: "Categories", roles: ["admin"] },
   { href: "/admin/job-codes", label: "Job Codes", roles: ["admin"] },

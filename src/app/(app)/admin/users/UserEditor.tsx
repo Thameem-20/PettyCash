@@ -75,6 +75,18 @@ export default function UserEditor({
 
   const isEdit = form.id > 0;
 
+  const supervisorBranchWarning = useMemo(() => {
+    if (!form.supervisor_id || !form.default_branch_id) return null;
+    const hasMembership = supervisorAccess.some(
+      (a) => a.user_id === form.supervisor_id && a.branch_id === form.default_branch_id
+    );
+    if (hasMembership) return null;
+    const supName = supervisors.find((s) => s.id === form.supervisor_id)?.name || "This supervisor";
+    const branchName =
+      branches.find((b) => b.id === form.default_branch_id)?.branch_name || "the selected branch";
+    return `${supName} isn't assigned as a supervisor on ${branchName} yet, so requests will route to the branch's default supervisor instead. Add ${supName} under "Branch roles (memberships)" for ${branchName} to have their personal requests reach them.`;
+  }, [form.supervisor_id, form.default_branch_id, supervisorAccess, supervisors, branches]);
+
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter((u) => {
@@ -497,6 +509,13 @@ export default function UserEditor({
                   </select>
                 </div>
               </div>
+
+              {supervisorBranchWarning && (
+                <p className="border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  ⚠ {supervisorBranchWarning}
+                </p>
+              )}
+
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input
                   type="checkbox"

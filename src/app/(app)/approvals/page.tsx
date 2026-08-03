@@ -6,6 +6,10 @@ import Tabs from "@/components/Tabs";
 import Pagination from "@/components/Pagination";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { PAGE_SIZE, pageMeta, pageOffset, parsePage } from "@/lib/pagination";
+import {
+  supervisorActionExistsSql,
+  supervisorApprovedExistsSql,
+} from "@/lib/supervisorScope";
 
 export const dynamic = "force-dynamic";
 
@@ -34,16 +38,18 @@ export default async function ApprovalsPage({
   let emptyMessage = "No requests found.";
 
   if (tab === "pending") {
+    // Only requests assigned to this supervisor — not unassigned / accounts self-routes.
     where = isAdmin
       ? `r.status IN (${phPending})`
-      : `r.status IN (${phPending}) AND (r.supervisor_id = ? OR r.supervisor_id IS NULL)`;
+      : `r.status IN (${phPending}) AND r.supervisor_id = ?`;
     params = isAdmin ? [...pendingStatuses] : [...pendingStatuses, session.id];
     order = "r.created_at ASC";
     emptyMessage = "No requests pending your approval.";
   } else if (tab === "approved") {
+    // Only requests this supervisor actually approved (not accounts-direct / self routes).
     where = isAdmin
       ? `r.approved_at IS NOT NULL AND r.status NOT IN (?, ?, ?, ?)`
-      : `r.supervisor_id = ? AND r.approved_at IS NOT NULL AND r.status NOT IN (?, ?, ?, ?)`;
+      : `${supervisorApprovedExistsSql("r")} AND r.status NOT IN (?, ?, ?, ?)`;
     params = isAdmin
       ? [
           EXACT_STATUS.PENDING_SUPERVISOR,
@@ -63,19 +69,19 @@ export default async function ApprovalsPage({
   } else if (tab === "rejected") {
     where = isAdmin
       ? `r.status IN (?, ?)`
-      : `r.supervisor_id = ? AND r.status IN (?, ?)`;
+      : `${supervisorActionExistsSql(["reject"], "r")} AND r.status IN (?, ?)`;
     params = isAdmin
       ? [EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED]
-      : [session.id, EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED];
+      : [session.id, "reject", EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED];
     order = "r.updated_at DESC";
     emptyMessage = "No rejected requests.";
   } else if (tab === "returned") {
     where = isAdmin
       ? `r.status IN (?, ?)`
-      : `r.supervisor_id = ? AND r.status IN (?, ?)`;
+      : `${supervisorActionExistsSql(["return"], "r")} AND r.status IN (?, ?)`;
     params = isAdmin
       ? [EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED]
-      : [session.id, EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED];
+      : [session.id, "return", EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED];
     order = "r.updated_at DESC";
     emptyMessage = "No requests returned for correction.";
   }

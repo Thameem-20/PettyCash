@@ -8,15 +8,16 @@ import { auditTx } from "@/lib/audit";
 import { SUSPENSE_STATUS } from "@/lib/status";
 import { isElevated } from "@/lib/rbac";
 import { round2, nextRequestNo } from "@/lib/util";
+import { sumSuspenseReturns } from "@/lib/suspenseReturns";
 
 type ChargeActualInput = { charge_id: number; actual_amount: number };
 
-// Settle a suspense:
-//   diff = advance - actual
-//   diff > 0 -> messenger returns diff (credit to cashbox)
-//   diff < 0 -> accounts pays additional -diff (debit from cashbox)
-//   diff = 0 -> exact settlement
-// Close only when advance == actual + returned (or advance + additional == actual).
+// Settle a suspense (accounts for any prior partial returns):
+//   remaining = advance - actual - already_returned
+//   remaining > 0 -> return remaining (credit)
+//   remaining < 0 -> pay additional (debit)
+//   remaining = 0 -> close with prior returns only
+// Close only when advance + additional == actual + total_returned.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireApiSession(["accounts", "accounts_supervisor", "admin"]);
@@ -36,7 +37,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       throw new ApiError(409, `Request is not ready for settlement (status: ${request.status}).`);
     }
 
-    // A final/settlement receipt must exist before settlement.
     const receipt = await queryOne<{ c: number }>(
       "SELECT COUNT(*) AS c FROM receipts WHERE request_id = ? AND receipt_type = 'settlement'",
       [id]
@@ -60,7 +60,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           actual_amount: Number(row.actual_amount),
         }));
       } else if (charges.length === 1 && body.actual_expense_amount != null && body.actual_expense_amount !== "") {
-        // Backward-compatible single-charge settle payload
         chargeActuals = [
           {
             charge_id: charges[0].id,
@@ -97,27 +96,31 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const advance = Number(request.paid_amount || 0);
-    const diff = round2(advance - actual);
+    const alreadyReturned = round2(Number(request.returned_amount || 0));
+    const remaining = round2(advance - actual - alreadyReturned);
     const allowNeg = Boolean(allow_negative) && isElevated(session.role);
 
     await withTransaction(async (conn) => {
-      let returned = 0;
+      let returnedThis = 0;
       let additional = 0;
 
-      if (diff > 0) {
-        // messenger returns balance -> cash back into box
-        returned = diff;
+      if (remaining > 0) {
+        returnedThis = remaining;
+        await conn.execute(
+          `INSERT INTO suspense_returns (request_id, amount, note, recorded_by_user_id)
+           VALUES (?,?,?,?)`,
+          [id, returnedThis, "Final return at settlement", session.id]
+        );
         await postLedger(conn, {
           branchId: request.branch_id,
           transactionType: "suspense_returned",
-          credit: returned,
+          credit: returnedThis,
           requestId: id,
           createdByUserId: session.id,
           remarks: `Suspense balance returned for ${request.request_no}`,
         });
-      } else if (diff < 0) {
-        // accounts pays additional -> cash out of box
-        additional = -diff;
+      } else if (remaining < 0) {
+        additional = -remaining;
         await postLedger(conn, {
           branchId: request.branch_id,
           transactionType: "additional_paid",
@@ -129,8 +132,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         });
       }
 
-      // Settlement balance check: advance + additional == actual + returned
-      const balanced = round2(advance + additional) === round2(actual + returned);
+      const totalReturned = await sumSuspenseReturns(conn, id);
+      const balanced = round2(advance + additional) === round2(actual + totalReturned);
       if (!balanced) {
         throw new ApiError(422, "Settlement does not balance. Suspense cannot be closed.");
       }
@@ -149,7 +152,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             SET status = ?, actual_expense_amount = ?, returned_amount = ?, additional_paid_amount = ?,
                 closed_request_no = ?, closed_at = NOW()
           WHERE id = ?`,
-        [SUSPENSE_STATUS.CLOSED, actual, returned, additional, closedRequestNo, id]
+        [SUSPENSE_STATUS.CLOSED, actual, totalReturned, additional, closedRequestNo, id]
       );
 
       await conn.execute(
@@ -160,7 +163,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           session.id,
           "accounts",
           "settle",
-          `Actual ${actual}, returned ${returned}, additional ${additional}`,
+          `Actual ${actual}, returned ${totalReturned} (this settlement ${returnedThis}), additional ${additional}`,
         ]
       );
 
@@ -169,12 +172,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         action: "settle_suspense",
         entityType: "petty_cash_request",
         entityId: id,
-        oldValue: { status: request.status },
+        oldValue: { status: request.status, returned_amount: alreadyReturned },
         newValue: {
           status: SUSPENSE_STATUS.CLOSED,
           closed_request_no: closedRequestNo,
           actual,
-          returned,
+          returned: totalReturned,
+          returned_this_settlement: returnedThis,
           additional,
           charge_actuals: chargeActuals,
         },

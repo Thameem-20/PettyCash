@@ -123,7 +123,7 @@ export default async function AccountsSupervisorPage({
 
   const [pipeline, queueData, trend, categories] = await Promise.all([
     orgRequestPipeline(scopeIds),
-    accountsProcessingQueueChart(scopeIds),
+    accountsProcessingQueueChart(scopeIds, { includeAccSupPending: true }),
     paymentTrend(7, scopeIds),
     topExpenseCategories(6, scopeIds),
   ]);
