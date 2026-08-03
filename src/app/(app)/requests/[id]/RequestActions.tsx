@@ -316,7 +316,15 @@ export default function RequestActions({
   }
 
   // ---- Accounts: partial cash return / close when fully returned ----
-  if (isAccounts && request.request_type === "suspense" && s === SUSPENSE_STATUS.OPEN_SUSPENSE) {
+  // Stays available through receipt submission / settlement review too, so accounts can
+  // record cash handed back at the same time the final receipt comes in, before settling.
+  const partialReturnEligible =
+    isAccounts &&
+    request.request_type === "suspense" &&
+    (s === SUSPENSE_STATUS.OPEN_SUSPENSE ||
+      s === SUSPENSE_STATUS.RECEIPT_SUBMITTED ||
+      s === SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW);
+  if (partialReturnEligible) {
     const openOutstanding = round2(
       Math.max(
         0,
@@ -325,7 +333,11 @@ export default function RequestActions({
           Number(request.actual_expense_amount || 0)
       )
     );
-    if (openOutstanding === 0 && Number(request.returned_amount || 0) > 0) {
+    if (
+      s === SUSPENSE_STATUS.OPEN_SUSPENSE &&
+      openOutstanding === 0 &&
+      Number(request.returned_amount || 0) > 0
+    ) {
       panels.push(
         <CloseFullyReturnedPanel key="close-fully-returned" post={post} busy={busy} />
       );

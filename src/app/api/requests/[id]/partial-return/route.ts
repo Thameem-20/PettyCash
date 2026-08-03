@@ -34,10 +34,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!(await accountsCanHandle(session, request.branch_id))) {
       throw new ApiError(403, "Not your branch");
     }
-    if (request.status !== SUSPENSE_STATUS.OPEN_SUSPENSE) {
+    const partialReturnAllowedStatuses: string[] = [
+      SUSPENSE_STATUS.OPEN_SUSPENSE,
+      SUSPENSE_STATUS.RECEIPT_SUBMITTED,
+      SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW,
+    ];
+    if (!partialReturnAllowedStatuses.includes(request.status)) {
       throw new ApiError(
         409,
-        "Partial returns are only allowed while the suspense is open (before final settlement)."
+        "Partial returns are only allowed before the suspense is settled and closed."
       );
     }
 
