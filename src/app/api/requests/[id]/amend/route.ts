@@ -5,8 +5,10 @@ import { PettyCashRequest } from "@/lib/types";
 import { auditTx } from "@/lib/audit";
 import { resolveOrCreateCategory } from "@/lib/categories";
 import { replaceRequestJobNumbers } from "@/lib/requests";
+import { postLedger } from "@/lib/ledger";
+import { isElevated } from "@/lib/rbac";
 import { money, round2 } from "@/lib/util";
-import { canAccSupAmend, canAccSupAmendAmounts } from "@/lib/accSupAmend";
+import { canAccSupAmend, canAccSupAmendAmounts, canAccSupCorrectPaidAmount } from "@/lib/accSupAmend";
 
 type ChargeAmend = {
   charge_id: number;
@@ -58,6 +60,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       approvedAmount = round2(Number(body.approved_amount));
       if (!(approvedAmount > 0)) {
         throw new ApiError(400, "Approved amount must be greater than zero.");
+      }
+    }
+
+    // Correct the actual paid/issued amount after cash has already moved (e.g. a
+    // mistyped payment). This adjusts the branch cash ledger by the difference.
+    let paidAmountCorrection: number | null = null;
+    if (body.paid_amount != null && body.paid_amount !== "") {
+      if (!canAccSupCorrectPaidAmount(request.status, request.paid_amount)) {
+        throw new ApiError(
+          422,
+          "The paid amount can only be corrected while the request is open and cash has already moved."
+        );
+      }
+      paidAmountCorrection = round2(Number(body.paid_amount));
+      if (!(paidAmountCorrection > 0)) {
+        throw new ApiError(400, "Paid amount must be greater than zero.");
       }
     }
 
@@ -176,6 +194,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         }
       }
 
+      const oldPaidAmount = Number(request.paid_amount || 0);
+      let paidAmountChanged = false;
+      if (paidAmountCorrection != null) {
+        const delta = round2(paidAmountCorrection - oldPaidAmount);
+        if (delta !== 0) {
+          paidAmountChanged = true;
+          const allowNeg = Boolean(body.allow_negative) && isElevated(session.role);
+          await postLedger(conn, {
+            branchId: request.branch_id,
+            transactionType: "adjustment",
+            debit: delta > 0 ? delta : 0,
+            credit: delta < 0 ? -delta : 0,
+            requestId: id,
+            createdByUserId: session.id,
+            remarks: `Paid amount corrected for ${request.request_no}: ${money(oldPaidAmount)} → ${money(
+              paidAmountCorrection
+            )} — ${reason}`,
+            allowNegative: allowNeg,
+          });
+          await conn.execute(
+            `UPDATE petty_cash_requests SET paid_amount = ?, approved_amount = ? WHERE id = ?`,
+            [paidAmountCorrection, paidAmountCorrection, id]
+          );
+        }
+      }
+
       let headerDescription = description;
       if (headerDescription) {
         const categoryId = await resolveOrCreateCategory(
@@ -278,8 +322,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (amountChanged && newApproved != null) {
         commentParts.push(`Amount ${money(oldAmount)} → ${money(newApproved)}`);
       }
+      if (paidAmountChanged) {
+        commentParts.push(`Paid amount ${money(oldPaidAmount)} → ${money(paidAmountCorrection!)}`);
+      }
       if (headerDescription) commentParts.push("Description updated");
       if (chargeInputs.length) commentParts.push(`Charges updated (${chargeInputs.length})`);
+
+      const approvalAction = amountChanged
+        ? "edit_amount"
+        : paidAmountChanged
+          ? "edit_paid_amount"
+          : "amend";
 
       await conn.execute(
         `INSERT INTO approvals (request_id, approver_user_id, approval_level, action, comments, old_amount, new_amount)
@@ -288,10 +341,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           id,
           session.id,
           "accounts_supervisor",
-          amountChanged ? "edit_amount" : "amend",
+          approvalAction,
           commentParts.join(" · "),
-          amountChanged ? oldAmount : null,
-          amountChanged ? newApproved : null,
+          amountChanged ? oldAmount : paidAmountChanged ? oldPaidAmount : null,
+          amountChanged ? newApproved : paidAmountChanged ? paidAmountCorrection : null,
         ]
       );
 
@@ -305,6 +358,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           description: request.description,
           approved_amount: request.approved_amount,
           requested_amount: request.requested_amount,
+          paid_amount: request.paid_amount,
         },
         newValue: {
           reason,
@@ -312,6 +366,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           approved_amount: newApproved,
           charges: chargeInputs,
           allow_amounts: allowAmounts,
+          paid_amount: paidAmountChanged ? paidAmountCorrection : undefined,
         },
       });
     });

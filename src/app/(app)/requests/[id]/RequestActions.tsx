@@ -156,6 +156,22 @@ export default function RequestActions({
     );
   }
 
+  // ---- Acc Sup: undo pay / issue (one step back, before receiver confirms) ----
+  if (
+    isAccSup &&
+    request.paid_amount != null &&
+    (s === EXACT_STATUS.AWAITING_RECEIVER || s === SUSPENSE_STATUS.AWAITING_CASH_RECEIPT)
+  ) {
+    panels.push(
+      <UndoPaymentPanel
+        key="undo-payment"
+        request={request}
+        post={post}
+        busy={busy}
+      />
+    );
+  }
+
   // ---- Submitter: resubmit after correction ----
   if (
     request.submitted_by_user_id === session.id &&
@@ -1052,6 +1068,73 @@ function ResubmitPanel({
         <p className="text-xs text-amber-700">
           {isJob ? jobStatus.error || "Fix job number routing before resubmitting." : "Select a branch."}
         </p>
+      )}
+    </div>
+  );
+}
+
+// ---------- Acc Sup: undo pay / issue advance ----------
+function UndoPaymentPanel({
+  request,
+  post,
+  busy,
+}: {
+  request: EnrichedRequest;
+  post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const isSuspense = request.request_type === "suspense";
+  const amount = money(request.paid_amount);
+  const label = isSuspense ? "Undo Advance" : "Undo Payment";
+
+  return (
+    <div className="card space-y-3 border border-amber-300 bg-amber-50/40 p-4">
+      <p className="label">{label}</p>
+      <p className="text-sm text-slate-600">
+        Accounts Supervisor fallback: reverse the{" "}
+        {isSuspense ? "advance issue" : "payment"} of <b>{amount}</b> one step. Cash is credited
+        back to the branch balance and the request returns to the accounts queue so it can be
+        paid/issued again. Only available before the receiver confirms cash.
+      </p>
+      {!confirm ? (
+        <button type="button" className="btn-warn" disabled={busy} onClick={() => setConfirm(true)}>
+          {label}
+        </button>
+      ) : (
+        <>
+          <div>
+            <label className="label">Reason (required — shown in activity)</label>
+            <input
+              className="input"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Paid wrong amount / paid wrong request"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={busy || !reason.trim()}
+              onClick={() => post("undo-payment", { reason: reason.trim() })}
+            >
+              Confirm {label}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() => {
+                setConfirm(false);
+                setReason("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

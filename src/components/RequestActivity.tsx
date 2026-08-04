@@ -20,6 +20,8 @@ const ACTION_LABELS: Record<string, string> = {
   reject: "Rejected",
   return: "Returned for correction",
   edit_amount: "Amount edited",
+  edit_paid_amount: "Paid amount corrected",
+  undo_payment: "Payment undone",
   branch_override: "Branch override",
   issue: "Suspense issued",
   pay: "Marked as paid",
@@ -72,6 +74,10 @@ export default function RequestActivity({ items }: { items: RequestActivityItem[
                 </p>
               ) : item.new_amount != null && item.action === "partial_return" ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">{money(item.new_amount)}</p>
+              ) : item.old_amount != null && item.action === "undo_payment" ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Reversed {money(item.old_amount)}
+                </p>
               ) : null}
               {item.comments && <p className="mt-1 text-xs text-muted-foreground">{item.comments}</p>}
               <p className="mt-1 text-[11px] text-muted-foreground">{formatDate(item.created_at)}</p>

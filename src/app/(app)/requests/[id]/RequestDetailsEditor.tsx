@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { EnrichedRequest, RequestCharge } from "@/lib/requests";
-import { canAccSupAmendAmounts } from "@/lib/accSupAmend";
+import { canAccSupAmendAmounts, canAccSupCorrectPaidAmount } from "@/lib/accSupAmend";
 import { money, round2, formatDate } from "@/lib/util";
 import RequestChargeTabs from "@/components/RequestChargeTabs";
 import DescriptionAutocomplete from "@/components/DescriptionAutocomplete";
@@ -76,6 +76,9 @@ export default function RequestDetailsEditor({
 }) {
   const router = useRouter();
   const allowAmounts = canAccSupAmendAmounts(request.status);
+  const canCorrectPaidAmount =
+    request.paid_amount != null &&
+    canAccSupCorrectPaidAmount(request.status, request.paid_amount);
   const hasChargeTabs = charges.length > 0 && !isCorrectionBySubmitter;
   const fuelInfo = useMemo(
     () =>
@@ -95,6 +98,10 @@ export default function RequestDetailsEditor({
   const [reason, setReason] = useState("");
   const [description, setDescription] = useState(request.description || "");
   const [requestedAmount, setRequestedAmount] = useState(String(request.requested_amount));
+  const [paidAmountDraft, setPaidAmountDraft] = useState(
+    request.paid_amount != null ? String(request.paid_amount) : ""
+  );
+  const [allowNegativePaid, setAllowNegativePaid] = useState(false);
   const [jobNumbersText, setJobNumbersText] = useState(jobNumbers.join(", "));
   const [truckNumber, setTruckNumber] = useState(request.truck_numbers || "");
   const [trailerNumber, setTrailerNumber] = useState(request.trailer_numbers || "");
@@ -118,6 +125,8 @@ export default function RequestDetailsEditor({
     setReason("");
     setDescription(request.description || "");
     setRequestedAmount(String(request.requested_amount));
+    setPaidAmountDraft(request.paid_amount != null ? String(request.paid_amount) : "");
+    setAllowNegativePaid(false);
     setJobNumbersText(jobNumbers.join(", "));
     setTruckNumber(request.truck_numbers || "");
     setTrailerNumber(request.trailer_numbers || "");
@@ -168,6 +177,13 @@ export default function RequestDetailsEditor({
       if (allowAmounts) {
         // Approved follows requested / charge total — not edited separately.
         body.approved_amount = draftRequestedTotal;
+      }
+      if (canCorrectPaidAmount) {
+        const correctedPaid = round2(Number(paidAmountDraft || 0));
+        if (correctedPaid !== round2(Number(request.paid_amount || 0))) {
+          body.paid_amount = correctedPaid;
+          body.allow_negative = allowNegativePaid;
+        }
       }
 
       if (charges.length > 0) {
@@ -284,7 +300,8 @@ export default function RequestDetailsEditor({
                 !reason.trim() ||
                 (hasChargeTabs
                   ? charges.some((c) => !chargeDrafts[c.id]?.description?.trim())
-                  : !description.trim())
+                  : !description.trim()) ||
+                (canCorrectPaidAmount && !(Number(paidAmountDraft) > 0))
               }
               onClick={() => save()}
             >
@@ -292,10 +309,28 @@ export default function RequestDetailsEditor({
             </button>
           </div>
           {error && <p className="w-full text-sm text-rose-700">{error}</p>}
-          {!allowAmounts && (
+          {!allowAmounts && !canCorrectPaidAmount && (
             <p className="w-full text-xs text-slate-500">
               Cash already moved — amounts stay locked; you can edit details only.
             </p>
+          )}
+          {canCorrectPaidAmount && (
+            <div className="w-full space-y-2 border-t border-sky-200 pt-2">
+              <p className="text-xs text-amber-700">
+                ⚠ Cash has already moved. Changing the{" "}
+                {request.request_type === "suspense" ? "advance paid" : "paid"} amount will also
+                post a correcting entry to the branch cash ledger for the difference, so the
+                system balance matches the real cash in hand.
+              </p>
+              <label className="flex items-center gap-2 text-xs text-slate-500">
+                <input
+                  type="checkbox"
+                  checked={allowNegativePaid}
+                  onChange={(e) => setAllowNegativePaid(e.target.checked)}
+                />
+                Override negative balance if this correction would take cash in hand below zero
+              </label>
+            </div>
           )}
         </div>
       )}
@@ -424,7 +459,14 @@ export default function RequestDetailsEditor({
           />
         )}
         {request.paid_amount != null && (
-          <Detail label="Paid Amount" value={money(request.paid_amount, request.currency)} />
+          <EditableDetail
+            label={request.request_type === "suspense" ? "Advance Paid" : "Paid Amount"}
+            editing={editing && canCorrectPaidAmount}
+            value={money(request.paid_amount, request.currency)}
+            input={paidAmountDraft}
+            onChange={setPaidAmountDraft}
+            type="number"
+          />
         )}
         {request.closed_request_no && (
           <Detail label="Closed Suspense No" value={request.closed_request_no} />
