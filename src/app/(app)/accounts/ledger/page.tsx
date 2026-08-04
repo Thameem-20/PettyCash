@@ -623,29 +623,49 @@ export default async function LedgerPage({
 
       <LedgerDateFilter period={period} date={date} maxDate={today} />
 
-      <div className="mb-5 grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
-        <StatCard label="Opening Balance" value={money(summary.openingBalance)} tone="info" />
-        <StatCard
-          label={paidLabel}
-          value={money(summary.totalPaidOut)}
-          hint={
-            summary.paymentCount === 1
-              ? "1 payment"
-              : `${summary.paymentCount} payments`
-          }
-          tone="bad"
-        />
-        <StatCard
-          label="Closing Balance (Cash In-hand)"
-          value={money(summary.closingBalance)}
-          tone="good"
-        />
-        <StatCard
-          label="Balance as per Zybo"
-          value={money(summary.balanceAsPerZybo)}
-          hint="No active open suspense included"
-          tone="neutral"
-        />
+      <div className="mb-5 grid grid-cols-1 items-start gap-2 sm:grid-cols-3 md:gap-3">
+        <div className="flex flex-col gap-1">
+          <StatCard
+            compact
+            label="Opening — Cash In-hand"
+            value={money(summary.openingBalance)}
+            tone="info"
+          />
+          <StatCard
+            compact
+            label="Opening — Zybo"
+            value={money(summary.openingBalanceAsPerZybo)}
+            tone="neutral"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <StatCard
+            compact
+            label={`${paidLabel} · ${summary.paymentCount}`}
+            value={money(summary.totalPaidOut)}
+            tone="bad"
+          />
+          <StatCard
+            compact
+            label={`Suspense Paid · ${summary.suspensePaymentCount}`}
+            value={money(summary.totalSuspensePaid)}
+            tone="warn"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <StatCard
+            compact
+            label="Closing — Cash In-hand"
+            value={money(summary.closingBalance)}
+            tone="good"
+          />
+          <StatCard
+            compact
+            label="Closing — Zybo"
+            value={money(summary.balanceAsPerZybo)}
+            tone="neutral"
+          />
+        </div>
       </div>
 
       {summary.totalReceived > 0 && (

@@ -87,6 +87,97 @@ export async function postLedger(
 }
 
 /**
+ * Remove the original pay / issue ledger row(s) for a request and rebuild
+ * subsequent running balances on that branch. Used by Acc Sup "undo payment"
+ * so the payment disappears from the ledger (no reversing adjustment row).
+ */
+export async function removeRequestPaymentLedger(
+  conn: PoolConnection,
+  opts: {
+    branchId: number;
+    requestId: number;
+    /** exact_paid for reimbursements, suspense_issued for advances */
+    transactionType: "exact_paid" | "suspense_issued";
+  }
+): Promise<{ removedDebit: number; removedIds: number[] }> {
+  await conn.query("SELECT current_cash_balance FROM branches WHERE id = ? FOR UPDATE", [
+    opts.branchId,
+  ]);
+
+  const [paymentRows] = await conn.query<any[]>(
+    `SELECT id, debit_amount, credit_amount, running_balance
+       FROM cash_ledger
+      WHERE branch_id = ? AND request_id = ? AND transaction_type = ?
+      ORDER BY id ASC`,
+    [opts.branchId, opts.requestId, opts.transactionType]
+  );
+
+  // Also drop prior undo-adjustment leftovers for this request (older undo behaviour).
+  const [undoAdjRows] = await conn.query<any[]>(
+    `SELECT id, debit_amount, credit_amount, running_balance
+       FROM cash_ledger
+      WHERE branch_id = ? AND request_id = ? AND transaction_type = 'adjustment'
+        AND remarks LIKE 'Undo %'
+      ORDER BY id ASC`,
+    [opts.branchId, opts.requestId]
+  );
+
+  const toRemove = [...paymentRows, ...undoAdjRows];
+  if (toRemove.length === 0) {
+    return { removedDebit: 0, removedIds: [] };
+  }
+
+  const removedIds = toRemove.map((r) => Number(r.id));
+  const removedDebit = paymentRows.reduce(
+    (s, r) => s + Number(r.debit_amount || 0),
+    0
+  );
+  const earliestId = Math.min(...removedIds);
+
+  // Balance immediately before the earliest removed row.
+  const [priorRows] = await conn.query<any[]>(
+    `SELECT running_balance FROM cash_ledger
+      WHERE branch_id = ? AND id < ?
+      ORDER BY id DESC LIMIT 1`,
+    [opts.branchId, earliestId]
+  );
+  let running =
+    priorRows.length > 0
+      ? Number(priorRows[0].running_balance)
+      : Number(toRemove[0].running_balance) -
+        Number(toRemove[0].credit_amount || 0) +
+        Number(toRemove[0].debit_amount || 0);
+
+  await conn.execute(
+    `DELETE FROM cash_ledger WHERE id IN (${removedIds.map(() => "?").join(",")})`,
+    removedIds
+  );
+
+  const [laterRows] = await conn.query<any[]>(
+    `SELECT id, debit_amount, credit_amount
+       FROM cash_ledger
+      WHERE branch_id = ? AND id > ?
+      ORDER BY id ASC`,
+    [opts.branchId, earliestId]
+  );
+
+  for (const row of laterRows) {
+    running = running + Number(row.credit_amount || 0) - Number(row.debit_amount || 0);
+    await conn.execute(`UPDATE cash_ledger SET running_balance = ? WHERE id = ?`, [
+      running,
+      row.id,
+    ]);
+  }
+
+  await conn.execute("UPDATE branches SET current_cash_balance = ? WHERE id = ?", [
+    running,
+    opts.branchId,
+  ]);
+
+  return { removedDebit, removedIds };
+}
+
+/**
  * Outstanding open suspense for branch(es) as of end of a calendar day.
  * Issued on/before that day and not yet closed by end of that day.
  */
@@ -440,7 +531,12 @@ export async function getClosedSuspenseEntriesForDay(
 
 export interface DailyLedgerSummary {
   openingBalance: number;
+  /** Opening cash + open suspense outstanding at start of day (Zybo-style). */
+  openingBalanceAsPerZybo: number;
   totalPaidOut: number;
+  /** Advances issued that day (suspense_issued + additional_paid debits). */
+  totalSuspensePaid: number;
+  suspensePaymentCount: number;
   totalReceived: number;
   closingBalance: number;
   /** Closing cash with open-suspense advances added back (Zybo-style books). */
@@ -452,6 +548,15 @@ export interface DailyLedgerSummary {
   /** Suspense closed on this day — one CSR row each for PCR. */
   closedSuspenseEntries: ClosedSuspenseLedgerRow[];
   date: string;
+}
+
+function addDaysYmd(ymd: string, delta: number): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  d.setDate(d.getDate() + delta);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** YYYY-MM-DD validation for ledger day filter. */
@@ -521,7 +626,10 @@ export async function getDailyLedgerSummary(
   if (branchIds.length === 0) {
     return {
       openingBalance: 0,
+      openingBalanceAsPerZybo: 0,
       totalPaidOut: 0,
+      totalSuspensePaid: 0,
+      suspensePaymentCount: 0,
       totalReceived: 0,
       closingBalance: 0,
       balanceAsPerZybo: 0,
@@ -539,6 +647,11 @@ export async function getDailyLedgerSummary(
     openingBalance += await getBranchOpeningBalance(id, day);
     closingBalance += await getBranchClosingBalance(id, day);
   }
+
+  // Open suspense as of end of prior day = outstanding at start of this day.
+  const priorDay = addDaysYmd(day, -1);
+  const openSuspenseAtOpen = await getOpenSuspenseAsOf(branchIds, priorDay);
+  const openingBalanceAsPerZybo = openingBalance + openSuspenseAtOpen;
 
   const ph = branchIds.map(() => "?").join(",");
   const entries = await query<DailyLedgerEntry>(
@@ -577,6 +690,8 @@ export async function getDailyLedgerSummary(
   );
 
   let totalPaidOut = 0;
+  let totalSuspensePaid = 0;
+  let suspensePaymentCount = 0;
   let totalReceived = 0;
   let paymentCount = 0;
   for (const e of entries) {
@@ -586,6 +701,13 @@ export async function getDailyLedgerSummary(
     totalPaidOut += debit;
     totalReceived += credit;
     if (debit > 0) paymentCount += 1;
+    if (
+      debit > 0 &&
+      (e.transaction_type === "suspense_issued" || e.transaction_type === "additional_paid")
+    ) {
+      totalSuspensePaid += debit;
+      suspensePaymentCount += 1;
+    }
     // Closing suspense with a balance return puts cash back — net it out of paid.
     if (e.transaction_type === "suspense_returned" && credit > 0) {
       totalPaidOut -= credit;
@@ -603,7 +725,10 @@ export async function getDailyLedgerSummary(
 
   return {
     openingBalance,
+    openingBalanceAsPerZybo,
     totalPaidOut,
+    totalSuspensePaid,
+    suspensePaymentCount,
     totalReceived,
     closingBalance,
     balanceAsPerZybo,

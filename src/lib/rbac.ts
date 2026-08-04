@@ -54,6 +54,11 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/accounts/pcp-jv", label: "PCP and JV", roles: ["accounts", "accounts_supervisor", "admin"] },
   { href: "/accounts/topup", label: "Top-Up Requests", roles: ["accounts", "accounts_supervisor", "admin"] },
   { href: "/accounts-supervisor", label: "Accounts Overview", roles: ["accounts_supervisor", "admin"] },
+  {
+    href: "/accounts-supervisor/supervisor-cover",
+    label: "Supervisor Cover",
+    roles: ["accounts_supervisor", "admin"],
+  },
   { href: "/accounts-supervisor/topup", label: "Top-Up Approvals", roles: ["accounts_supervisor", "admin"] },
   { href: "/treasury", label: "Treasury", roles: ["treasury"] },
   { href: "/reports", label: "Reports", roles: ["accounts", "accounts_supervisor", "treasury", "admin"] },

@@ -60,21 +60,32 @@ export default function Sidebar({
         const badgeCount =
           accountsNavBadgeCount(item.href, badges) ||
           fieldStaffNavBadgeCount(item.href, fieldStaffBadges);
-        const emphasized = item.href === "/admin/control-panel";
+        const isControlPanel = item.href === "/admin/control-panel";
+        const isSupervisorCover = item.href === "/accounts-supervisor/supervisor-cover";
         return (
           <Link
             key={`${item.href}::${item.label}`}
             href={item.href}
             className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              active
-                ? "bg-primary font-semibold text-primary-foreground shadow-sm"
-                : emphasized
-                  ? "border border-brand-300 bg-brand-50 font-semibold text-brand-800 hover:bg-brand-100"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              active && isSupervisorCover
+                ? "border border-amber-500 bg-amber-500 font-semibold text-white shadow-sm"
+                : active
+                  ? "bg-primary font-semibold text-primary-foreground shadow-sm"
+                  : isSupervisorCover
+                    ? "border border-amber-300 bg-amber-50 font-semibold text-amber-900 hover:bg-amber-100"
+                    : isControlPanel
+                      ? "border border-brand-300 bg-brand-50 font-semibold text-brand-800 hover:bg-brand-100"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             }`}
           >
             <span>{item.label}</span>
-            <SidebarBadge count={badgeCount} />
+            {isSupervisorCover && badgeCount > 0 ? (
+              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-700 px-1.5 text-[11px] font-bold leading-none text-white">
+                {badgeCount > 99 ? "99+" : badgeCount}
+              </span>
+            ) : (
+              <SidebarBadge count={badgeCount} />
+            )}
           </Link>
         );
       })}

@@ -3,6 +3,7 @@ import {
   accountsBranchIds,
   countPendingZyboVouchers,
   countPendingPcpJv,
+  countRequestsWhere,
 } from "./requests";
 import { branchIdsWithCodingType } from "./branchProfile";
 import {
@@ -11,6 +12,7 @@ import {
   scopeIdsFrom,
   type AccountsBranch,
 } from "./accountsBranch";
+import { EXACT_STATUS, SUSPENSE_STATUS } from "./status";
 import type { AccountsNavBadges } from "./accountsNavBadges";
 
 export type { AccountsNavBadges } from "./accountsNavBadges";
@@ -42,7 +44,7 @@ export async function getAccountsNavBadges(session: {
   }
 
   if (branchList.length === 0) {
-    return { pendingZyboVoucher: 0, pendingPcpJv: 0 };
+    return { pendingZyboVoucher: 0, pendingPcpJv: 0, pendingSupervisorCover: 0 };
   }
 
   // Match accounts pages: badge counts follow the currently selected branch (or all).
@@ -55,10 +57,23 @@ export async function getAccountsNavBadges(session: {
     branchIdsWithCodingType("pcp_jv", scopeIds),
   ]);
 
-  const [pendingZyboVoucher, pendingPcpJv] = await Promise.all([
+  const isAccSupNav =
+    role === "accounts_supervisor" ||
+    role === "admin" ||
+    session.role === "accounts_supervisor" ||
+    session.role === "admin";
+
+  const pendingStatuses = [EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR];
+  const coverPh = pendingStatuses.map(() => "?").join(",");
+  const coverWhere = `r.branch_id IN (${scopeIds.map(() => "?").join(",")}) AND r.status IN (${coverPh})`;
+
+  const [pendingZyboVoucher, pendingPcpJv, pendingSupervisorCover] = await Promise.all([
     countPendingZyboVouchers(zyboIds),
     countPendingPcpJv(pcpIds),
+    isAccSupNav
+      ? countRequestsWhere(coverWhere, [...scopeIds, ...pendingStatuses])
+      : Promise.resolve(0),
   ]);
 
-  return { pendingZyboVoucher, pendingPcpJv };
+  return { pendingZyboVoucher, pendingPcpJv, pendingSupervisorCover };
 }

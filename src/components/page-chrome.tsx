@@ -61,6 +61,7 @@ export function StatCard({
   tone = "neutral",
   href,
   icon,
+  compact = false,
 }: {
   label: string;
   value: string | number;
@@ -68,12 +69,28 @@ export function StatCard({
   tone?: StatTone;
   href?: string;
   icon?: React.ReactNode;
+  /** Shorter padding and smaller value text (e.g. stacked opening tiles). */
+  compact?: boolean;
 }) {
   const t = STAT_TONES[tone];
   const body = (
-    <Card className="@container h-full gap-0 overflow-hidden p-2.5 @[10rem]:p-3 @[14rem]:p-4">
-      <div className="flex items-start justify-between gap-1.5">
-        <p className="min-w-0 flex-1 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground @[12rem]:text-[11px] @[16rem]:text-xs">
+    <Card
+      className={cn(
+        "@container gap-0 overflow-hidden",
+        compact
+          ? "h-auto rounded-md px-2 py-1 md:rounded-lg"
+          : "h-full p-2.5 @[10rem]:p-3 @[14rem]:p-4"
+      )}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate font-medium uppercase tracking-wide text-muted-foreground",
+            compact
+              ? "text-[9px] leading-none @[14rem]:text-[10px]"
+              : "text-[10px] @[12rem]:text-[11px] @[16rem]:text-xs"
+          )}
+        >
           {label}
         </p>
         {icon && (
@@ -89,7 +106,10 @@ export function StatCard({
       </div>
       <p
         className={cn(
-          "mt-1 truncate whitespace-nowrap text-sm font-bold tabular-nums leading-tight @[10rem]:text-base @[14rem]:text-lg @[18rem]:text-xl @[22rem]:text-2xl",
+          "truncate whitespace-nowrap font-bold tabular-nums leading-none",
+          compact
+            ? "mt-0.5 text-sm @[14rem]:text-base"
+            : "mt-1 leading-tight text-sm @[10rem]:text-base @[14rem]:text-lg @[18rem]:text-xl @[22rem]:text-2xl",
           t.value
         )}
         title={String(value)}
@@ -97,7 +117,14 @@ export function StatCard({
         {value}
       </p>
       {hint && (
-        <p className="mt-0.5 truncate text-[10px] text-muted-foreground @[14rem]:mt-1 @[14rem]:text-xs">
+        <p
+          className={cn(
+            "truncate text-muted-foreground",
+            compact
+              ? "mt-0.5 text-[9px] leading-none"
+              : "mt-0.5 text-[10px] @[14rem]:mt-1 @[14rem]:text-xs"
+          )}
+        >
           {hint}
         </p>
       )}

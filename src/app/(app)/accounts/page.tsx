@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { requireRole } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
 import { getRequestsWhere, countRequestsWhere, accountsBranchIds, countPendingZyboVouchers } from "@/lib/requests";
@@ -16,6 +17,7 @@ import { PageHeader, StatCard } from "@/components/page-chrome";
 import RequestTable from "@/components/RequestTable";
 import Tabs from "@/components/Tabs";
 import Pagination from "@/components/Pagination";
+import AccountsQueueFilters from "@/components/AccountsQueueFilters";
 import { money, formatDate } from "@/lib/util";
 import {
   ACCOUNTS_PENDING_STATUSES,
@@ -24,6 +26,10 @@ import {
   EXACT_STATUS,
 } from "@/lib/status";
 import { PAGE_SIZE, pageMeta, pageOffset, parsePage } from "@/lib/pagination";
+import type { ChargeType, RequestType } from "@/lib/types";
+
+const CHARGE_TYPES: ChargeType[] = ["job", "non_job", "truck_trailer", "general"];
+const REQUEST_TYPES: RequestType[] = ["exact", "suspense"];
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +107,15 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: { branch?: string; tab?: string; page?: string };
+  searchParams: {
+    branch?: string;
+    tab?: string;
+    page?: string;
+    q?: string;
+    user?: string;
+    charge?: string;
+    type?: string;
+  };
 }) {
   const session = await requireRole(["accounts", "accounts_supervisor", "admin"]);
 
@@ -138,50 +152,105 @@ export default async function AccountsPage({
   const phScope = scopeIds.map(() => "?").join(",");
   const tab = searchParams.tab || "pending";
 
+  const submitters = await query<{ id: number; name: string }>(
+    `SELECT DISTINCT u.id, u.name
+       FROM petty_cash_requests r
+       JOIN users u ON u.id = r.submitted_by_user_id
+      WHERE r.branch_id IN (${phScope})
+      ORDER BY u.name`,
+    scopeIds
+  );
+
+  const q = (searchParams.q || "").trim();
+  const chargeParam = CHARGE_TYPES.includes(searchParams.charge as ChargeType)
+    ? (searchParams.charge as ChargeType)
+    : "";
+  const typeParam = REQUEST_TYPES.includes(searchParams.type as RequestType)
+    ? (searchParams.type as RequestType)
+    : "";
+  const userParam = searchParams.user?.trim();
+  const userId = userParam && /^\d+$/.test(userParam) ? Number(userParam) : null;
+  const validUserId =
+    userId != null && submitters.some((u) => u.id === userId) ? userId : null;
+  const hasFilters = Boolean(q || validUserId || chargeParam || typeParam);
+
   let rows = [] as Awaited<ReturnType<typeof getRequestsWhere>>;
   let balanceView: React.ReactNode = null;
   let listMeta = pageMeta(0, 1);
 
   if (tab !== "balance") {
-    let where = "";
-    let params: unknown[] = [];
+    const whereParts: string[] = [];
+    const params: unknown[] = [];
     let order = "r.created_at DESC";
 
     if (tab === "pending") {
       const phStat = ACCOUNTS_PENDING_STATUSES.map(() => "?").join(",");
       if (session.role === "accounts") {
-        where = `r.branch_id IN (${phScope}) AND r.status IN (${phStat})`;
-        params = [...scopeIds, ...ACCOUNTS_PENDING_STATUSES];
+        whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (${phStat})`);
+        params.push(...scopeIds, ...ACCOUNTS_PENDING_STATUSES);
       } else {
         // Acc Sup / admin: normal pending (excluding Acc-Sup-created) + accounts staff reimbursements awaiting Acc Sup.
-        where = `r.branch_id IN (${phScope}) AND (
+        whereParts.push(`r.branch_id IN (${phScope})`, `(
           (r.status IN (${phStat}) AND (r.submitter_role IS NULL OR r.submitter_role <> 'accounts_supervisor'))
           OR r.status = ?
-        )`;
-        params = [...scopeIds, ...ACCOUNTS_PENDING_STATUSES, EXACT_STATUS.PENDING_ACC_SUP];
+        )`);
+        params.push(...scopeIds, ...ACCOUNTS_PENDING_STATUSES, EXACT_STATUS.PENDING_ACC_SUP);
       }
     } else if (tab === "paid_today") {
-      where = `r.branch_id IN (${phScope}) AND DATE(r.paid_at) = CURDATE()`;
-      params = scopeIds;
+      whereParts.push(`r.branch_id IN (${phScope})`, `DATE(r.paid_at) = CURDATE()`);
+      params.push(...scopeIds);
+      order = "r.paid_at DESC";
     } else if (tab === "open_suspense") {
       const phStat = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
-      where = `r.branch_id IN (${phScope}) AND r.status IN (${phStat})`;
-      params = [...scopeIds, ...OPEN_SUSPENSE_STATUSES];
+      whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (${phStat})`);
+      params.push(...scopeIds, ...OPEN_SUSPENSE_STATUSES);
     } else if (tab === "settlement_pending") {
-      where = `r.branch_id IN (${phScope}) AND r.status IN (?, ?)`;
-      params = [...scopeIds, SUSPENSE_STATUS.RECEIPT_SUBMITTED, SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW];
+      whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (?, ?)`);
+      params.push(...scopeIds, SUSPENSE_STATUS.RECEIPT_SUBMITTED, SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW);
     } else if (tab === "returned") {
-      where = `r.branch_id IN (${phScope}) AND r.returned_amount IS NOT NULL AND r.returned_amount > 0`;
-      params = scopeIds;
+      whereParts.push(
+        `r.branch_id IN (${phScope})`,
+        `r.returned_amount IS NOT NULL`,
+        `r.returned_amount > 0`
+      );
+      params.push(...scopeIds);
     } else if (tab === "partial_returns") {
       const phStat = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
-      where = `r.branch_id IN (${phScope})
-        AND r.status IN (${phStat})
-        AND r.returned_amount IS NOT NULL AND r.returned_amount > 0
-        AND EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = r.id)`;
-      params = [...scopeIds, ...OPEN_SUSPENSE_STATUSES];
+      whereParts.push(
+        `r.branch_id IN (${phScope})`,
+        `r.status IN (${phStat})`,
+        `r.returned_amount IS NOT NULL`,
+        `r.returned_amount > 0`,
+        `EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = r.id)`
+      );
+      params.push(...scopeIds, ...OPEN_SUSPENSE_STATUSES);
     }
 
+    if (typeParam) {
+      whereParts.push("r.request_type = ?");
+      params.push(typeParam);
+    }
+    if (chargeParam) {
+      whereParts.push("r.charge_type = ?");
+      params.push(chargeParam);
+    }
+    if (validUserId != null) {
+      whereParts.push("r.submitted_by_user_id = ?");
+      params.push(validUserId);
+    }
+    if (q) {
+      const like = `%${q}%`;
+      whereParts.push(
+        `(r.request_no LIKE ? OR COALESCE(r.closed_request_no, '') LIKE ?
+          OR COALESCE(r.description, '') LIKE ? OR COALESCE(r.job_number, '') LIKE ?
+          OR su.name LIKE ? OR COALESCE(ru.name, '') LIKE ?
+          OR COALESCE(r.cash_receiver_label, '') LIKE ?
+          OR c.category_name LIKE ?)`
+      );
+      params.push(like, like, like, like, like, like, like, like);
+    }
+
+    const where = whereParts.join(" AND ");
     const total = await countRequestsWhere(where, params);
     listMeta = pageMeta(total, parsePage(searchParams.page));
     rows = await getRequestsWhere(where, params, order, {
@@ -259,10 +328,25 @@ export default async function AccountsPage({
         balanceView
       ) : (
         <>
+          <Suspense fallback={<div className="mb-3 h-16 animate-pulse rounded-lg bg-slate-100" />}>
+            <AccountsQueueFilters
+              users={JSON.parse(JSON.stringify(submitters))}
+              current={{
+                q,
+                userId: validUserId,
+                charge: chargeParam,
+                type: typeParam,
+              }}
+            />
+          </Suspense>
           <RequestTable
             rows={rows}
             showBranch={scope.all}
-            emptyMessage="Nothing here right now."
+            emptyMessage={
+              hasFilters
+                ? "No requests match your search or filters."
+                : "Nothing here right now."
+            }
             usePaidAmount={tab === "paid_today"}
             useReturnedAmount={tab === "returned" || tab === "partial_returns"}
             amountLabel={

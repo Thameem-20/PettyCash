@@ -67,6 +67,7 @@ export default function RequestActions({
   initialJobNumbers = [],
   charges = [],
   suspenseReturns = [],
+  hasOrphanPaymentLedger = false,
 }: {
   request: EnrichedRequest;
   session: SessionUser;
@@ -75,6 +76,8 @@ export default function RequestActions({
   initialJobNumbers?: string[];
   charges?: RequestCharge[];
   suspenseReturns?: SuspenseReturnRow[];
+  /** Ledger still has pay/issue row after a prior undo that only posted an adjustment. */
+  hasOrphanPaymentLedger?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -124,11 +127,18 @@ export default function RequestActions({
     }
   }
 
+  const primary = session.primary_role || session.role;
   const isSupervisor = session.role === "supervisor" || session.role === "admin";
-  const isAccSup = session.role === "accounts_supervisor" || session.role === "admin";
+  const isAccSup =
+    session.role === "accounts_supervisor" ||
+    primary === "accounts_supervisor" ||
+    session.role === "admin" ||
+    primary === "admin";
   const isAccounts =
     session.role === "admin" ||
+    primary === "admin" ||
     session.role === "accounts_supervisor" ||
+    primary === "accounts_supervisor" ||
     (session.role === "accounts" && accountsBranchIds.includes(request.branch_id));
   const isReceiver = request.cash_receiver_user_id === session.id;
   const isOwnerOrReceiver =
@@ -157,17 +167,24 @@ export default function RequestActions({
   }
 
   // ---- Acc Sup: undo pay / issue (one step back, before receiver confirms) ----
-  if (
-    isAccSup &&
+  // Also offered when a prior undo left the original ledger payment row behind.
+  const canUndoLivePayment =
     request.paid_amount != null &&
-    (s === EXACT_STATUS.AWAITING_RECEIVER || s === SUSPENSE_STATUS.AWAITING_CASH_RECEIPT)
-  ) {
+    (s === EXACT_STATUS.AWAITING_RECEIVER || s === SUSPENSE_STATUS.AWAITING_CASH_RECEIPT);
+  const canClearOrphanLedger =
+    hasOrphanPaymentLedger &&
+    request.paid_amount == null &&
+    (s === EXACT_STATUS.PENDING_PAYMENT ||
+      s === EXACT_STATUS.PENDING_ACC_SUP ||
+      s === SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE);
+  if (isAccSup && (canUndoLivePayment || canClearOrphanLedger)) {
     panels.push(
       <UndoPaymentPanel
         key="undo-payment"
         request={request}
         post={post}
         busy={busy}
+        orphanCleanup={canClearOrphanLedger}
       />
     );
   }
@@ -202,6 +219,24 @@ export default function RequestActions({
       );
     } else {
       panels.push(<SupervisorPanel key="sup" request={request} post={post} busy={busy} />);
+    }
+  }
+
+  // ---- Acc Sup: approve on behalf of absent supervisor ----
+  if (
+    isAccSup &&
+    !isSupervisor &&
+    (s === EXACT_STATUS.PENDING_SUPERVISOR || s === SUSPENSE_STATUS.PENDING_SUPERVISOR) &&
+    !isStaffReimbursementRole(request.submitter_role)
+  ) {
+    if (isOwnRequest) {
+      panels.push(
+        <Note key="own-behalf">You cannot approve your own request on behalf of a supervisor.</Note>
+      );
+    } else {
+      panels.push(
+        <ApproveOnBehalfPanel key="on-behalf" request={request} post={post} busy={busy} />
+      );
     }
   }
 
@@ -554,6 +589,97 @@ function SupervisorPanel({
           className="btn-danger"
           disabled={busy}
           onClick={() => post("approve", { action: "reject", comments })}
+        >
+          Reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Acc Sup: approve on behalf of supervisor ----------
+function ApproveOnBehalfPanel({
+  request,
+  post,
+  busy,
+}: {
+  request: EnrichedRequest;
+  post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const [comments, setComments] = useState("");
+  const [editAmount, setEditAmount] = useState(false);
+  const [approvedAmount, setApprovedAmount] = useState(String(request.requested_amount));
+  const [reason, setReason] = useState("");
+  const supervisorLabel = request.supervisor_name?.trim() || "the assigned supervisor";
+
+  function act(action: "approve" | "reject" | "return") {
+    return post("approve-on-behalf", {
+      action,
+      comments,
+      approved_amount: action === "approve" && editAmount ? Number(approvedAmount) : undefined,
+      reason: action === "approve" && editAmount ? reason : undefined,
+    });
+  }
+
+  return (
+    <div className="card space-y-3 border border-sky-300 bg-sky-50/40 p-4">
+      <p className="label">Act on behalf of supervisor</p>
+      <p className="text-sm text-slate-600">
+        Cover for <b>{supervisorLabel}</b> while they are unavailable. Approve sends the request to
+        Accounts; return/reject work the same as a normal supervisor decision. Activity will show
+        you acted on their behalf.
+      </p>
+      <textarea
+        className="input"
+        rows={2}
+        placeholder="Comments (optional for approve, required for reject/return)"
+        value={comments}
+        onChange={(e) => setComments(e.target.value)}
+      />
+
+      <label className="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" checked={editAmount} onChange={(e) => setEditAmount(e.target.checked)} />
+        Edit approved amount (original {money(request.requested_amount)})
+      </label>
+      {editAmount && (
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            className="input"
+            type="number"
+            step="0.01"
+            value={approvedAmount}
+            onChange={(e) => setApprovedAmount(e.target.value)}
+            placeholder="Approved amount"
+          />
+          <input
+            className="input"
+            placeholder="Reason (mandatory)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="btn-success"
+          disabled={busy || (editAmount && !reason.trim())}
+          onClick={() => act("approve")}
+        >
+          Approve on behalf of {supervisorLabel}
+        </button>
+        <button
+          className="btn-warn"
+          disabled={busy || !comments.trim()}
+          onClick={() => act("return")}
+        >
+          Return for Correction
+        </button>
+        <button
+          className="btn-danger"
+          disabled={busy || !comments.trim()}
+          onClick={() => act("reject")}
         >
           Reject
         </button>
@@ -1078,25 +1204,44 @@ function UndoPaymentPanel({
   request,
   post,
   busy,
+  orphanCleanup = false,
 }: {
   request: EnrichedRequest;
   post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
   busy: boolean;
+  orphanCleanup?: boolean;
 }) {
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState(false);
   const isSuspense = request.request_type === "suspense";
-  const amount = money(request.paid_amount);
-  const label = isSuspense ? "Undo Advance" : "Undo Payment";
+  const amount = request.paid_amount != null ? money(request.paid_amount) : null;
+  const label = orphanCleanup
+    ? "Clear leftover ledger payment"
+    : isSuspense
+      ? "Undo Advance"
+      : "Undo Payment";
 
   return (
     <div className="card space-y-3 border border-amber-300 bg-amber-50/40 p-4">
       <p className="label">{label}</p>
       <p className="text-sm text-slate-600">
-        Accounts Supervisor fallback: reverse the{" "}
-        {isSuspense ? "advance issue" : "payment"} of <b>{amount}</b> one step. Cash is credited
-        back to the branch balance and the request returns to the accounts queue so it can be
-        paid/issued again. Only available before the receiver confirms cash.
+        {orphanCleanup ? (
+          <>
+            A previous undo left the original {isSuspense ? "advance" : "payment"} row in the cash
+            ledger. Clearing it removes that paid row (and any old undo adjustment), restores cash
+            in hand, and keeps the request in the accounts queue. Paid Today will no longer include
+            it.
+          </>
+        ) : (
+          <>
+            Accounts Supervisor fallback: undo the{" "}
+            {isSuspense ? "advance issue" : "payment"}
+            {amount ? <> of <b>{amount}</b></> : null} one step. The paid row is{" "}
+            <b>removed from the ledger</b> (not reversed with an adjustment), cash returns to the
+            branch balance, and the request goes back to the accounts queue. Only available before
+            the receiver confirms cash.
+          </>
+        )}
       </p>
       {!confirm ? (
         <button type="button" className="btn-warn" disabled={busy} onClick={() => setConfirm(true)}>

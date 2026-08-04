@@ -16,6 +16,9 @@ const ACTION_LABELS: Record<string, string> = {
   approve: "Approved",
   approve_pay: "Approve pay",
   approve_for_payment: "Approved for payment",
+  approve_on_behalf: "Approved on behalf of supervisor",
+  return_on_behalf: "Returned on behalf of supervisor",
+  reject_on_behalf: "Rejected on behalf of supervisor",
   escalate_accounts_supervisor: "Sent to Accounts Supervisor",
   reject: "Rejected",
   return: "Returned for correction",
@@ -42,8 +45,8 @@ function labelLevel(level: string) {
 }
 
 function dotStyles(action: string) {
-  if (action === "reject") return "border-rose-600 bg-rose-600";
-  if (action === "return") return "border-amber-600 bg-amber-600";
+  if (action === "reject" || action === "reject_on_behalf") return "border-rose-600 bg-rose-600";
+  if (action === "return" || action === "return_on_behalf") return "border-amber-600 bg-amber-600";
   return "border-primary bg-primary";
 }
 

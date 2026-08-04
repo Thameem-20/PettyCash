@@ -67,8 +67,10 @@ export type LedgerPdfInput = {
   showBranch: boolean;
   compassionMode?: boolean;
   openingBalance: number;
+  openingBalanceAsPerZybo: number;
   paidOut: number;
   paidLabel: string;
+  totalSuspensePaid: number;
   closingBalance: number;
   balanceAsPerZybo: number;
   pcrRows: LedgerPdfPcrRow[];
@@ -156,17 +158,28 @@ function drawSummaryCards(
   page: PDFPage,
   fontBold: PDFFont,
   y: number,
-  cards: { label: string; value: string; accent: ReturnType<typeof rgb> }[]
+  cards: {
+    label: string;
+    value: string;
+    stacked?: { label: string; value: string }[];
+    accent: ReturnType<typeof rgb>;
+  }[]
 ): number {
-  const gap = 10;
-  const cardW = (CONTENT_W - gap * 3) / 4;
+  const gap = 8;
+  const cols = Math.min(cards.length, 3);
+  const rows = Math.ceil(cards.length / cols);
+  const cardW = (CONTENT_W - gap * (cols - 1)) / cols;
   const cardH = 44;
+  const rowGap = 8;
 
   cards.forEach((card, i) => {
-    const x = MARGIN + i * (cardW + gap);
+    const row = Math.floor(i / cols);
+    const col = i % cols;
+    const x = MARGIN + col * (cardW + gap);
+    const top = y - row * (cardH + rowGap);
     page.drawRectangle({
       x,
-      y: y - cardH,
+      y: top - cardH,
       width: cardW,
       height: cardH,
       color: WHITE,
@@ -175,28 +188,50 @@ function drawSummaryCards(
     });
     page.drawRectangle({
       x,
-      y: y - 3,
+      y: top - 3,
       width: cardW,
       height: 3,
       color: card.accent,
     });
     page.drawText(card.label.toUpperCase(), {
-      x: x + 10,
-      y: y - 16,
-      size: 6.5,
+      x: x + 8,
+      y: top - 12,
+      size: 5.5,
       font: fontBold,
       color: MUTED,
     });
-    page.drawText(card.value, {
-      x: x + 10,
-      y: y - 33,
-      size: 11,
-      font: fontBold,
-      color: INK,
-    });
+    if (card.stacked && card.stacked.length > 0) {
+      card.stacked.forEach((line, li) => {
+        const ly = top - 24 - li * 11;
+        page.drawText(line.label, {
+          x: x + 8,
+          y: ly,
+          size: 6,
+          font: fontBold,
+          color: MUTED,
+        });
+        const val = truncate(fontBold, line.value, 9, cardW - 70);
+        const vw = fontBold.widthOfTextAtSize(val, 9);
+        page.drawText(val, {
+          x: x + cardW - 8 - vw,
+          y: ly,
+          size: 9,
+          font: fontBold,
+          color: INK,
+        });
+      });
+    } else {
+      page.drawText(card.value, {
+        x: x + 8,
+        y: top - 30,
+        size: 10,
+        font: fontBold,
+        color: INK,
+      });
+    }
   });
 
-  return y - cardH - 20;
+  return y - rows * cardH - (rows - 1) * rowGap - 16;
 }
 
 function drawSectionTitle(
@@ -379,10 +414,33 @@ export async function generateLedgerPdf(data: LedgerPdfInput): Promise<Buffer> {
   let cur = newPage();
 
   cur.y = drawSummaryCards(cur.page, fontBold, cur.y, [
-    { label: "Opening Balance", value: money(data.openingBalance), accent: BRAND },
-    { label: data.paidLabel, value: money(data.paidOut), accent: DANGER },
-    { label: "Closing (Inhand cash)", value: money(data.closingBalance), accent: BRAND },
-    { label: "Balance as per Zybo", value: money(data.balanceAsPerZybo), accent: MUTED },
+    {
+      label: "Opening Balance",
+      value: money(data.openingBalance),
+      stacked: [
+        { label: "Cash in-hand", value: money(data.openingBalance) },
+        { label: "Zybo", value: money(data.openingBalanceAsPerZybo) },
+      ],
+      accent: BRAND,
+    },
+    {
+      label: "Paid Out",
+      value: money(data.paidOut),
+      stacked: [
+        { label: data.paidLabel, value: money(data.paidOut) },
+        { label: "Suspense Paid", value: money(data.totalSuspensePaid) },
+      ],
+      accent: DANGER,
+    },
+    {
+      label: "Closing Balance",
+      value: money(data.closingBalance),
+      stacked: [
+        { label: "Cash in-hand", value: money(data.closingBalance) },
+        { label: "Zybo", value: money(data.balanceAsPerZybo) },
+      ],
+      accent: BRAND,
+    },
   ]);
 
   const compassion = Boolean(data.compassionMode);

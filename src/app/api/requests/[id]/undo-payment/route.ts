@@ -3,15 +3,15 @@ import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
 import { queryOne, withTransaction } from "@/lib/db";
 import { PettyCashRequest } from "@/lib/types";
 import { accountsCanHandle } from "@/lib/requests";
-import { postLedger } from "@/lib/ledger";
+import { removeRequestPaymentLedger } from "@/lib/ledger";
 import { auditTx } from "@/lib/audit";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { money, round2 } from "@/lib/util";
 
 /**
  * Accounts Supervisor fallback: undo the most recent pay / issue-advance step.
- * Only while still awaiting receiver confirmation (one step after payment).
- * Credits the paid amount back to branch cash and restores the pre-payment queue status.
+ * Removes the original ledger payment row (does not post a reversing adjustment),
+ * restores cash in hand, and puts the request back in the accounts queue.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -31,31 +31,37 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const paidAmount = round2(Number(request.paid_amount || 0));
-    if (!(paidAmount > 0) || !request.paid_at) {
-      throw new ApiError(409, "This request has no payment to undo.");
-    }
+    const hasLivePayment = paidAmount > 0 && !!request.paid_at;
 
     let restoreStatus: string;
     let undoLabel: string;
+    let ledgerType: "exact_paid" | "suspense_issued";
 
     if (request.request_type === "exact") {
-      if (request.status !== EXACT_STATUS.AWAITING_RECEIVER) {
+      ledgerType = "exact_paid";
+      const awaiting = request.status === EXACT_STATUS.AWAITING_RECEIVER;
+      const queueAfterUndo =
+        request.status === EXACT_STATUS.PENDING_PAYMENT ||
+        request.status === EXACT_STATUS.PENDING_ACC_SUP;
+      if (!awaiting && !(queueAfterUndo && !hasLivePayment)) {
         throw new ApiError(
           409,
-          "Undo payment is only available while awaiting receiver confirmation (before they confirm cash)."
+          "Undo payment is only available while awaiting receiver confirmation, or to clear a leftover ledger row after a prior undo."
         );
       }
-      // Accounts self-reimbursements are paid from the Acc Sup queue.
       restoreStatus =
         request.submitter_role === "accounts"
           ? EXACT_STATUS.PENDING_ACC_SUP
           : EXACT_STATUS.PENDING_PAYMENT;
       undoLabel = "payment";
     } else if (request.request_type === "suspense") {
-      if (request.status !== SUSPENSE_STATUS.AWAITING_CASH_RECEIPT) {
+      ledgerType = "suspense_issued";
+      const awaiting = request.status === SUSPENSE_STATUS.AWAITING_CASH_RECEIPT;
+      const queueAfterUndo = request.status === SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE;
+      if (!awaiting && !(queueAfterUndo && !hasLivePayment)) {
         throw new ApiError(
           409,
-          "Undo advance is only available while awaiting cash receipt confirmation (before they confirm cash)."
+          "Undo advance is only available while awaiting cash receipt confirmation, or to clear a leftover ledger row after a prior undo."
         );
       }
       restoreStatus = SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE;
@@ -65,14 +71,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     await withTransaction(async (conn) => {
-      await postLedger(conn, {
+      const removed = await removeRequestPaymentLedger(conn, {
         branchId: request.branch_id,
-        transactionType: "adjustment",
-        credit: paidAmount,
         requestId: id,
-        createdByUserId: session.id,
-        remarks: `Undo ${undoLabel} for ${request.request_no}: ${money(paidAmount)} returned to cash — ${reason}`,
+        transactionType: ledgerType,
       });
+
+      if (removed.removedIds.length === 0 && !hasLivePayment) {
+        throw new ApiError(409, "No payment ledger entry found to remove for this request.");
+      }
+
+      const credited = removed.removedDebit || paidAmount;
 
       await conn.execute(
         `UPDATE petty_cash_requests
@@ -93,8 +102,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           session.id,
           "accounts_supervisor",
           "undo_payment",
-          `Undid ${undoLabel} · ${reason}`,
-          paidAmount,
+          `Undid ${undoLabel} · removed ledger payment · ${reason}`,
+          credited || paidAmount || null,
           null,
         ]
       );
@@ -113,11 +122,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           status: restoreStatus,
           paid_amount: null,
           reason,
+          removed_ledger_ids: removed.removedIds,
+          credited: money(credited),
         },
       });
     });
 
-    return ok({ restored_status: restoreStatus, credited: paidAmount });
+    return ok({ restored_status: restoreStatus });
   } catch (err) {
     return fail(err);
   }

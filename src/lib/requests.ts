@@ -34,6 +34,7 @@ export interface EnrichedRequest {
   currency: string;
   status: string;
   supervisor_id: number | null;
+  supervisor_name: string | null;
   accounts_user_id: number | null;
   processing_by_user_id: number | null;
   processing_by_name: string | null;
@@ -58,6 +59,7 @@ const FROM = `
     JOIN users su ON su.id = r.submitted_by_user_id
     LEFT JOIN users ru ON ru.id = r.cash_receiver_user_id
     LEFT JOIN users pu ON pu.id = r.processing_by_user_id
+    LEFT JOIN users sup ON sup.id = r.supervisor_id
 `;
 
 const SELECT = `
@@ -68,6 +70,7 @@ const SELECT = `
          su.name AS submitted_by_name,
          ru.name AS receiver_name,
          pu.name AS processing_by_name,
+         sup.name AS supervisor_name,
          (
            SELECT GROUP_CONCAT(DISTINCT ch.truck_number ORDER BY ch.sort_order, ch.id SEPARATOR ', ')
              FROM request_charges ch
@@ -152,13 +155,16 @@ export async function treasuryCanHandle(
 
 /** Whether a session user may view a particular request. */
 export async function canViewRequest(session: SessionUser, r: EnrichedRequest): Promise<boolean> {
+  const primary = session.primary_role || session.role;
+  // Elevated primary roles keep overview access even when branch membership
+  // temporarily changes the effective session.role.
+  if (session.role === "admin" || primary === "admin") return true;
+  if (session.role === "accounts_supervisor" || primary === "accounts_supervisor") {
+    const ids = await accountsBranchIds(session.id);
+    return ids.length === 0 || ids.includes(r.branch_id);
+  }
+
   switch (session.role) {
-    case "admin":
-      return true;
-    case "accounts_supervisor": {
-      const ids = await accountsBranchIds(session.id);
-      return ids.length === 0 || ids.includes(r.branch_id);
-    }
     case "supervisor":
       return r.supervisor_id === session.id || true; // supervisors can view all for context
     case "accounts": {

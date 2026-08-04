@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/session";
+import { queryOne } from "@/lib/db";
 import {
   getRequestById,
   getReceipts,
@@ -45,6 +46,24 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     req.request_type === "suspense" ? await listSuspenseReturns(req.id) : [];
   const approvals = await getApprovals(req.id);
   const activity = buildRequestActivity(req, approvals);
+  const primary = session.primary_role || session.role;
+  const isAccSupViewer =
+    session.role === "accounts_supervisor" ||
+    primary === "accounts_supervisor" ||
+    session.role === "admin" ||
+    primary === "admin";
+  const paymentLedgerType =
+    req.request_type === "exact" ? "exact_paid" : "suspense_issued";
+  const orphanLedger =
+    isAccSupViewer && req.paid_at == null
+      ? await queryOne<{ id: number }>(
+          `SELECT id FROM cash_ledger
+            WHERE request_id = ? AND transaction_type = ?
+            LIMIT 1`,
+          [req.id, paymentLedgerType]
+        )
+      : null;
+  const hasOrphanPaymentLedger = Boolean(orphanLedger);
   const accBranchIds = session.role === "accounts" ? await accountsBranchIds(session.id) : [];
   const zyboBranchSegment = await resolveZyboBranchSegment(req.branch_id, jobNumbers[0] ?? req.job_number);
   const branchProfile = await getBranchProfile(req.branch_id);
@@ -82,6 +101,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             initialJobNumbers={jobNumbers}
             charges={JSON.parse(JSON.stringify(charges))}
             suspenseReturns={JSON.parse(JSON.stringify(suspenseReturns))}
+            hasOrphanPaymentLedger={hasOrphanPaymentLedger}
           />
 
           <RequestDetailsEditor
