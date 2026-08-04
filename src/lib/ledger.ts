@@ -534,7 +534,10 @@ export interface DailyLedgerSummary {
   /** Opening cash + open suspense outstanding at start of day (Zybo-style). */
   openingBalanceAsPerZybo: number;
   totalPaidOut: number;
-  /** Advances issued that day (suspense_issued + additional_paid debits). */
+  /**
+   * Sum of paid_amount on all currently open suspense (date-filter independent),
+   * matching the OSR list.
+   */
   totalSuspensePaid: number;
   suspensePaymentCount: number;
   totalReceived: number;
@@ -690,8 +693,6 @@ export async function getDailyLedgerSummary(
   );
 
   let totalPaidOut = 0;
-  let totalSuspensePaid = 0;
-  let suspensePaymentCount = 0;
   let totalReceived = 0;
   let paymentCount = 0;
   for (const e of entries) {
@@ -701,13 +702,6 @@ export async function getDailyLedgerSummary(
     totalPaidOut += debit;
     totalReceived += credit;
     if (debit > 0) paymentCount += 1;
-    if (
-      debit > 0 &&
-      (e.transaction_type === "suspense_issued" || e.transaction_type === "additional_paid")
-    ) {
-      totalSuspensePaid += debit;
-      suspensePaymentCount += 1;
-    }
     // Closing suspense with a balance return puts cash back — net it out of paid.
     if (e.transaction_type === "suspense_returned" && credit > 0) {
       totalPaidOut -= credit;
@@ -721,6 +715,11 @@ export async function getDailyLedgerSummary(
   const balanceAsPerZybo = closingBalance + openSuspenseOutstanding;
   // OSR UI: always show currently active open suspense (date filter independent).
   const openSuspenseEntries = await getActiveOpenSuspenseEntries(branchIds);
+  const totalSuspensePaid = openSuspenseEntries.reduce(
+    (sum, e) => sum + Number(e.paid_amount),
+    0
+  );
+  const suspensePaymentCount = openSuspenseEntries.length;
   const closedSuspenseEntries = await getClosedSuspenseEntriesForDay(branchIds, day);
 
   return {
