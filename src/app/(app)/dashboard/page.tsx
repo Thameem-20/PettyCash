@@ -21,7 +21,7 @@ import {
   SUSPENSE_STATUS,
 } from "@/lib/status";
 import { ROLE_LABELS } from "@/lib/rbac";
-import { resolveBranchScope, branchScopeLabel, branchScopeQuery, scopeIdsFrom, branchIdInSql } from "@/lib/accountsBranch";
+import { resolveBranchScope, branchScopeLabel, branchScopeQuery, scopeIdsFrom, branchIdInSql, allowAllBranchesForRole } from "@/lib/accountsBranch";
 import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { countPendingZyboVouchers } from "@/lib/requests";
@@ -85,7 +85,12 @@ export default async function DashboardPage({
       {(role === "cash_requester" || role === "messenger" || role === "operations") && (
         <FieldStaffDashboard userId={session.id} />
       )}
-      {role === "supervisor" && <SupervisorDashboard userId={session.id} />}
+      {role === "supervisor" && (
+        <SupervisorDashboard
+          session={session}
+          branchParam={resolveActiveBranchParam(session.preferred_branch_param, searchParams.branch)}
+        />
+      )}
       {role === "accounts" && (
         <AccountsDashboard
           session={session}
@@ -141,19 +146,40 @@ async function FieldStaffDashboard({ userId }: { userId: number }) {
   );
 }
 
-async function SupervisorDashboard({ userId }: { userId: number }) {
-  const pendingWhere = `supervisor_id = ? AND status = ?`;
+async function SupervisorDashboard({
+  session,
+  branchParam,
+}: {
+  session: { id: number; role: string; primary_role?: string; preferred_branch_param?: string };
+  branchParam: string | undefined;
+}) {
+  const branchList = await getBranchListForSession(session);
+  const allowAll = allowAllBranchesForRole(session.primary_role || session.role);
+  const scope =
+    branchList.length > 0
+      ? resolveBranchScope(branchParam, branchList, allowAll)
+      : null;
+  const scopeIds = scope ? scopeIdsFrom(scope) : [];
+  const branchName = scope ? branchScopeLabel(scope, branchList) : "All Branches";
+  const { sql: branchSql, params: branchParams } = scopeIds.length
+    ? branchIdInSql(scopeIds)
+    : { sql: "1=1", params: [] as number[] };
+
+  const userId = session.id;
+  const pendingWhere = `${branchSql} AND supervisor_id = ? AND status = ?`;
   const [pendingExact, pendingSusp, approved, breakdown, trend] = await Promise.all([
     countWhere(`${pendingWhere} AND request_type = 'exact'`, [
+      ...branchParams,
       userId,
       EXACT_STATUS.PENDING_SUPERVISOR,
     ]),
     countWhere(`${pendingWhere} AND request_type = 'suspense'`, [
+      ...branchParams,
       userId,
       SUSPENSE_STATUS.PENDING_SUPERVISOR,
     ]),
     countWhere(
-      `EXISTS (
+      `${branchSql} AND EXISTS (
          SELECT 1 FROM approvals a
           WHERE a.request_id = petty_cash_requests.id
             AND a.approver_user_id = ?
@@ -161,6 +187,7 @@ async function SupervisorDashboard({ userId }: { userId: number }) {
             AND a.action IN ('approve', 'edit_amount')
        ) AND status NOT IN (?, ?, ?, ?)`,
       [
+        ...branchParams,
         userId,
         EXACT_STATUS.PENDING_SUPERVISOR,
         SUSPENSE_STATUS.PENDING_SUPERVISOR,
@@ -168,12 +195,15 @@ async function SupervisorDashboard({ userId }: { userId: number }) {
         SUSPENSE_STATUS.REJECTED,
       ]
     ),
-    supervisorApprovalBreakdown(userId, false),
-    supervisorWeeklyTrend(userId, false),
+    supervisorApprovalBreakdown(userId, false, scopeIds),
+    supervisorWeeklyTrend(userId, false, scopeIds),
   ]);
 
   return (
     <>
+      <p className="mb-3 text-xs text-slate-500 md:text-sm">
+        Showing {branchName}. Switch workspace branch to view another queue.
+      </p>
       <div className="grid auto-rows-fr grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
         <StatCard
           label="Pending Approval"
@@ -187,10 +217,10 @@ async function SupervisorDashboard({ userId }: { userId: number }) {
         <StatCard label="Suspense Pending" value={pendingSusp} href="/approvals?tab=pending" icon={<Wallet />} />
       </div>
       <ChartGrid>
-        <ChartCard title="Approval Pipeline" subtitle="Requests under your supervision">
+        <ChartCard title="Approval Pipeline" subtitle={`Requests under your supervision — ${branchName}`}>
           <DonutChart data={breakdown} />
         </ChartCard>
-        <ChartCard title="Approvals This Week" subtitle="Daily approvals — last 7 days">
+        <ChartCard title="Approvals This Week" subtitle={`Daily approvals — last 7 days · ${branchName}`}>
           <TrendChart data={trend} />
         </ChartCard>
       </ChartGrid>

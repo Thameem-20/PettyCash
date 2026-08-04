@@ -188,8 +188,7 @@ export async function POST(req: NextRequest) {
       }
       if (compassion) {
         if (chargeType === "truck_trailer") {
-          if (!c.truckNumber) throw new ApiError(400, `Charge ${n}: truck number is required`);
-          if (!c.trailerNumber) throw new ApiError(400, `Charge ${n}: trailer number is required`);
+          // Truck / trailer numbers are optional; driver is still required.
           if (!c.driverId) throw new ApiError(400, `Charge ${n}: driver is required`);
         }
       }
@@ -291,13 +290,13 @@ export async function POST(req: NextRequest) {
         parseOptionalNumber(form.get("fuel_liters")) ??
         charges.find((c) => c.fuelLiters != null)?.fuelLiters ??
         null;
-      if (fuelFromKm == null || fuelFromKm < 0) {
-        throw new ApiError(400, "From km is required for fuel charges");
+      if (fuelFromKm != null && fuelFromKm < 0) {
+        throw new ApiError(400, "From km cannot be negative");
       }
-      if (fuelToKm == null || fuelToKm < 0) {
-        throw new ApiError(400, "To km is required for fuel charges");
+      if (fuelToKm != null && fuelToKm < 0) {
+        throw new ApiError(400, "To km cannot be negative");
       }
-      if (fuelToKm < fuelFromKm) {
+      if (fuelFromKm != null && fuelToKm != null && fuelToKm < fuelFromKm) {
         throw new ApiError(400, "To km must be greater than or equal to from km");
       }
       if (fuelLiters == null || fuelLiters <= 0) {

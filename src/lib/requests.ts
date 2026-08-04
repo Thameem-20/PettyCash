@@ -2,6 +2,7 @@ import { query, queryOne } from "./db";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import { EXACT_STATUS, SUSPENSE_STATUS, isStaffReimbursementRole } from "./status";
 import { SessionUser, Role, PettyCashRequest } from "./types";
+import { getUserRoleForBranch } from "./branchMembership";
 
 export interface EnrichedRequest {
   id: number;
@@ -165,8 +166,11 @@ export async function canViewRequest(session: SessionUser, r: EnrichedRequest): 
   }
 
   switch (session.role) {
-    case "supervisor":
-      return r.supervisor_id === session.id || true; // supervisors can view all for context
+    case "supervisor": {
+      if (r.supervisor_id === session.id) return true;
+      const roleOnBranch = await getUserRoleForBranch(session.id, r.branch_id);
+      return roleOnBranch === "supervisor";
+    }
     case "accounts": {
       const ids = await accountsBranchIds(session.id);
       return ids.includes(r.branch_id);

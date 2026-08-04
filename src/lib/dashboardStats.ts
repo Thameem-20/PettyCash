@@ -73,8 +73,15 @@ export async function userSubmissionTrend(userId: number, days = 7): Promise<Cha
 
 export async function supervisorApprovalBreakdown(
   userId: number,
-  isAdmin: boolean
+  isAdmin: boolean,
+  branchIds?: number[]
 ): Promise<ChartPoint[]> {
+  const branchFilter =
+    branchIds && branchIds.length > 0
+      ? ` AND branch_id IN (${branchIds.map(() => "?").join(",")})`
+      : "";
+  const branchParams = branchIds && branchIds.length > 0 ? [...branchIds] : [];
+
   if (isAdmin) {
     const rows = await query<{ bucket: string; c: number }>(
       `SELECT
@@ -87,9 +94,11 @@ export async function supervisorApprovalBreakdown(
          END AS bucket,
          COUNT(*) AS c
        FROM petty_cash_requests
+       WHERE 1=1${branchFilter}
        GROUP BY bucket
        HAVING bucket <> 'Other'
-       ORDER BY c DESC`
+       ORDER BY c DESC`,
+      branchParams
     );
     const order = ["Pending", "Approved", "Returned", "Rejected"];
     return order
@@ -127,22 +136,22 @@ export async function supervisorApprovalBreakdown(
   const [pending, approved, returned, rejected] = await Promise.all([
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE supervisor_id = ? AND status = 'Pending Supervisor Approval'`,
-      [userId]
+        WHERE supervisor_id = ? AND status = 'Pending Supervisor Approval'${branchFilter}`,
+      [userId, ...branchParams]
     ),
     queryOne<{ c: number }>(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${approvedSql}`,
-      [userId]
-    ),
-    queryOne<{ c: number }>(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE status = 'Returned for Correction' AND ${returnedSql}`,
-      [userId]
+      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${approvedSql}${branchFilter}`,
+      [userId, ...branchParams]
     ),
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE status = 'Rejected' AND ${rejectedSql}`,
-      [userId]
+        WHERE status = 'Returned for Correction' AND ${returnedSql}${branchFilter}`,
+      [userId, ...branchParams]
+    ),
+    queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests
+        WHERE status = 'Rejected' AND ${rejectedSql}${branchFilter}`,
+      [userId, ...branchParams]
     ),
   ]);
 
@@ -154,7 +163,17 @@ export async function supervisorApprovalBreakdown(
   ].filter((r) => r.value > 0);
 }
 
-export async function supervisorWeeklyTrend(userId: number, isAdmin: boolean): Promise<ChartPoint[]> {
+export async function supervisorWeeklyTrend(
+  userId: number,
+  isAdmin: boolean,
+  branchIds?: number[]
+): Promise<ChartPoint[]> {
+  const branchFilter =
+    branchIds && branchIds.length > 0
+      ? ` AND branch_id IN (${branchIds.map(() => "?").join(",")})`
+      : "";
+  const branchParams = branchIds && branchIds.length > 0 ? [...branchIds] : [];
+
   const base = isAdmin
     ? ""
     : `AND EXISTS (
@@ -164,13 +183,15 @@ export async function supervisorWeeklyTrend(userId: number, isAdmin: boolean): P
             AND a.approval_level = 'supervisor'
             AND a.action IN ('approve', 'edit_amount')
        )`;
-  const params = isAdmin ? [6] : [6, userId];
+  const params = isAdmin
+    ? [6, ...branchParams]
+    : [6, userId, ...branchParams];
   const rows = await query<{ d: string; c: number }>(
     `SELECT DATE(approved_at) AS d, COUNT(*) AS c
        FROM petty_cash_requests
       WHERE approved_at IS NOT NULL
         AND approved_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-        ${base}
+        ${base}${branchFilter}
       GROUP BY DATE(approved_at)`,
     params
   );

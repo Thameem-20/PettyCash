@@ -8,8 +8,17 @@ export type FieldStaffNavBadges = {
   pendingApprovals: number;
 };
 
-export async function getFieldStaffNavBadges(userId: number): Promise<FieldStaffNavBadges> {
+export async function getFieldStaffNavBadges(
+  userId: number,
+  opts?: { branchIds?: number[] }
+): Promise<FieldStaffNavBadges> {
   const closedPh = CLOSED_STATUSES.map(() => "?").join(",");
+  const branchIds = opts?.branchIds;
+  const branchFilter =
+    branchIds && branchIds.length > 0
+      ? ` AND branch_id IN (${branchIds.map(() => "?").join(",")})`
+      : "";
+  const branchParams = branchIds && branchIds.length > 0 ? [...branchIds] : [];
 
   const [confirmRow, suspenseRow, opsRow, approvalsRow] = await Promise.all([
     queryOne<{ c: number }>(
@@ -34,8 +43,14 @@ export async function getFieldStaffNavBadges(userId: number): Promise<FieldStaff
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
         WHERE supervisor_id = ?
-          AND status IN (?, ?)`,
-      [userId, EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR]
+          AND status IN (?, ?)
+          ${branchFilter}`,
+      [
+        userId,
+        EXACT_STATUS.PENDING_SUPERVISOR,
+        SUSPENSE_STATUS.PENDING_SUPERVISOR,
+        ...branchParams,
+      ]
     ),
   ]);
 

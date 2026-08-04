@@ -13,12 +13,15 @@ import { getBranchProfile, codingType } from "@/lib/branchProfile";
 import {
   allowAllBranchesForRole,
   resolveTopBarBranch,
+  resolveBranchScope,
+  scopeIdsFrom,
   type AccountsBranch,
 } from "@/lib/accountsBranch";
 import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
 import { query } from "@/lib/db";
 import AutoRefresh from "@/components/AutoRefresh";
 import { isMaintenanceMode } from "@/lib/appSettings";
+import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
@@ -46,24 +49,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     return true;
   });
 
-  const mobileBadges =
-    session.role === "cash_requester" ||
-    session.role === "messenger" ||
-    session.role === "operations" ||
-    session.role === "supervisor" ||
-    session.role === "accounts" ||
-    session.role === "accounts_supervisor" ||
-    session.primary_role === "cash_requester" ||
-    session.primary_role === "messenger" ||
-    session.primary_role === "operations" ||
-    session.primary_role === "supervisor" ||
-    session.primary_role === "accounts" ||
-    session.primary_role === "accounts_supervisor"
-      ? await getFieldStaffNavBadges(session.id)
-      : undefined;
-
-  const accountsBadges = await getAccountsNavBadges(session);
-
   const primary = session.primary_role || session.role;
   const allowAll = allowAllBranchesForRole(primary);
   const memberships = await listWorkspaceBranchesForUser(session.id);
@@ -80,6 +65,38 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     pickList.length > 0
       ? resolveTopBarBranch(session.preferred_branch_param, pickList, allowAll)
       : null;
+
+  const supervisorBranchIds =
+    (session.role === "supervisor" || session.primary_role === "supervisor") &&
+    pickList.length > 0
+      ? scopeIdsFrom(
+          resolveBranchScope(
+            resolveActiveBranchParam(session.preferred_branch_param, undefined),
+            pickList,
+            allowAll
+          )
+        )
+      : undefined;
+
+  const mobileBadges =
+    session.role === "cash_requester" ||
+    session.role === "messenger" ||
+    session.role === "operations" ||
+    session.role === "supervisor" ||
+    session.role === "accounts" ||
+    session.role === "accounts_supervisor" ||
+    session.primary_role === "cash_requester" ||
+    session.primary_role === "messenger" ||
+    session.primary_role === "operations" ||
+    session.primary_role === "supervisor" ||
+    session.primary_role === "accounts" ||
+    session.primary_role === "accounts_supervisor"
+      ? await getFieldStaffNavBadges(session.id, {
+          branchIds: supervisorBranchIds,
+        })
+      : undefined;
+
+  const accountsBadges = await getAccountsNavBadges(session);
 
   const switcher = (
     <WorkspaceSwitcher

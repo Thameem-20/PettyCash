@@ -358,13 +358,23 @@ export default function NewRequestForm({
     if (fuelActive) {
       if (!fuelVehicleNo.trim()) return "Select a vehicle";
       if (!fuelVehicleLabel.trim()) return "Selected vehicle is not in the admin list";
-      if (fuelFromKm.trim() === "" || Number(fuelFromKm) < 0 || Number.isNaN(Number(fuelFromKm))) {
-        return "Enter a valid from km";
+      if (fuelFromKm.trim() !== "") {
+        if (Number(fuelFromKm) < 0 || Number.isNaN(Number(fuelFromKm))) {
+          return "Enter a valid from km";
+        }
       }
-      if (fuelToKm.trim() === "" || Number(fuelToKm) < 0 || Number.isNaN(Number(fuelToKm))) {
-        return "Enter a valid to km";
+      if (fuelToKm.trim() !== "") {
+        if (Number(fuelToKm) < 0 || Number.isNaN(Number(fuelToKm))) {
+          return "Enter a valid to km";
+        }
       }
-      if (Number(fuelToKm) < Number(fuelFromKm)) return "To km must be greater than or equal to from km";
+      if (
+        fuelFromKm.trim() !== "" &&
+        fuelToKm.trim() !== "" &&
+        Number(fuelToKm) < Number(fuelFromKm)
+      ) {
+        return "To km must be greater than or equal to from km";
+      }
       if (!fuelLiters.trim() || Number(fuelLiters) <= 0 || Number.isNaN(Number(fuelLiters))) {
         return "Enter liters greater than zero";
       }
@@ -377,8 +387,7 @@ export default function NewRequestForm({
       if (!c.amount || Number(c.amount) <= 0) return `Charge ${n}: enter a valid amount`;
       if (isCompassion) {
         if (chargeType === "truck_trailer") {
-          if (!c.truckNumber.trim()) return `Charge ${n}: enter a truck number`;
-          if (!c.trailerNumber.trim()) return `Charge ${n}: enter a trailer number`;
+          // Truck / trailer optional; driver required for truck/trailer shipments.
           if (!c.driverId) return `Charge ${n}: select a driver`;
         }
       } else if (effectiveJobChargeType === "job") {
@@ -441,8 +450,8 @@ export default function NewRequestForm({
       if (fuelActive) {
         fd.set("is_fuel_charges", "true");
         fd.set("fuel_vehicle_no", fuelVehicleNo.trim());
-        fd.set("fuel_from_km", String(Number(fuelFromKm)));
-        fd.set("fuel_to_km", String(Number(fuelToKm)));
+        if (fuelFromKm.trim() !== "") fd.set("fuel_from_km", String(Number(fuelFromKm)));
+        if (fuelToKm.trim() !== "") fd.set("fuel_to_km", String(Number(fuelToKm)));
         fd.set("fuel_liters", String(Number(fuelLiters)));
       }
 
@@ -464,8 +473,9 @@ export default function NewRequestForm({
             driver_id: isCompassion && c.driverId ? c.driverId : null,
             vehicle_number: fuelActive ? fuelVehicleNo.trim() || null : null,
             vehicle_label: fuelActive ? fuelVehicleLabel.trim() || null : null,
-            fuel_from_km: fuelActive ? Number(fuelFromKm) : null,
-            fuel_to_km: fuelActive ? Number(fuelToKm) : null,
+            fuel_from_km:
+              fuelActive && fuelFromKm.trim() !== "" ? Number(fuelFromKm) : null,
+            fuel_to_km: fuelActive && fuelToKm.trim() !== "" ? Number(fuelToKm) : null,
             fuel_liters: fuelActive ? Number(fuelLiters) : null,
           }))
         )
@@ -640,7 +650,7 @@ export default function NewRequestForm({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="label">From km *</label>
+                  <label className="label">From km</label>
                   <input
                     className="input"
                     type="number"
@@ -649,11 +659,11 @@ export default function NewRequestForm({
                     inputMode="decimal"
                     value={fuelFromKm}
                     onChange={(e) => setFuelFromKm(e.target.value)}
-                    placeholder="0"
+                    placeholder="Optional"
                   />
                 </div>
                 <div>
-                  <label className="label">To km *</label>
+                  <label className="label">To km</label>
                   <input
                     className="input"
                     type="number"
@@ -662,7 +672,7 @@ export default function NewRequestForm({
                     inputMode="decimal"
                     value={fuelToKm}
                     onChange={(e) => setFuelToKm(e.target.value)}
-                    placeholder="0"
+                    placeholder="Optional"
                   />
                 </div>
               </div>
@@ -694,7 +704,7 @@ export default function NewRequestForm({
             requestType={requestType}
             showJob={!isCompassion && effectiveJobChargeType === "job"}
             showCompassion={isCompassion}
-            requireCompassionVehicle={chargeType === "truck_trailer"}
+            requireCompassionDriver={chargeType === "truck_trailer"}
             drivers={drivers}
             descriptionLocked={fuelActive}
             onUpdate={(patch) => updateCharge(charge.key, patch)}
@@ -902,7 +912,7 @@ function ChargeCard({
   requestType,
   showJob,
   showCompassion,
-  requireCompassionVehicle,
+  requireCompassionDriver,
   drivers,
   descriptionLocked,
   onUpdate,
@@ -915,7 +925,7 @@ function ChargeCard({
   requestType: "exact" | "suspense";
   showJob: boolean;
   showCompassion?: boolean;
-  requireCompassionVehicle?: boolean;
+  requireCompassionDriver?: boolean;
   drivers?: Driver[];
   descriptionLocked?: boolean;
   onUpdate: (patch: Partial<ChargeGroup>) => void;
@@ -956,30 +966,26 @@ function ChargeCard({
         <>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
-              <label className="label">
-                Truck Number{requireCompassionVehicle ? " *" : ""}
-              </label>
+              <label className="label">Truck Number</label>
               <SuggestInput
                 value={charge.truckNumber}
                 onChange={(v) => onUpdate({ truckNumber: v })}
-                placeholder="Truck number"
+                placeholder="Truck number (optional)"
                 endpoint="/api/meta/compassion-suggest?field=truck"
               />
             </div>
             <div>
-              <label className="label">
-                Trailer Number{requireCompassionVehicle ? " *" : ""}
-              </label>
+              <label className="label">Trailer Number</label>
               <SuggestInput
                 value={charge.trailerNumber}
                 onChange={(v) => onUpdate({ trailerNumber: v })}
-                placeholder="Trailer number"
+                placeholder="Trailer number (optional)"
                 endpoint="/api/meta/compassion-suggest?field=trailer"
               />
             </div>
           </div>
           <div>
-            <label className="label">Driver{requireCompassionVehicle ? " *" : ""}</label>
+            <label className="label">Driver{requireCompassionDriver ? " *" : ""}</label>
             <select
               className="input"
               value={charge.driverId}
