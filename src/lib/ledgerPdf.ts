@@ -169,7 +169,11 @@ function drawSummaryCards(
   const cols = Math.min(cards.length, 3);
   const rows = Math.ceil(cards.length / cols);
   const cardW = (CONTENT_W - gap * (cols - 1)) / cols;
-  const cardH = 44;
+  const maxLines = Math.max(
+    1,
+    ...cards.map((c) => (c.stacked && c.stacked.length > 0 ? c.stacked.length : 1))
+  );
+  const cardH = 16 + maxLines * 12;
   const rowGap = 8;
 
   cards.forEach((card, i) => {
@@ -202,7 +206,7 @@ function drawSummaryCards(
     });
     if (card.stacked && card.stacked.length > 0) {
       card.stacked.forEach((line, li) => {
-        const ly = top - 24 - li * 11;
+        const ly = top - 26 - li * 12;
         page.drawText(line.label, {
           x: x + 8,
           y: ly,
@@ -210,12 +214,12 @@ function drawSummaryCards(
           font: fontBold,
           color: MUTED,
         });
-        const val = truncate(fontBold, line.value, 9, cardW - 70);
-        const vw = fontBold.widthOfTextAtSize(val, 9);
+        const val = truncate(fontBold, line.value, 8.5, cardW - 78);
+        const vw = fontBold.widthOfTextAtSize(val, 8.5);
         page.drawText(val, {
           x: x + cardW - 8 - vw,
           y: ly,
-          size: 9,
+          size: 8.5,
           font: fontBold,
           color: INK,
         });
@@ -415,31 +419,35 @@ export async function generateLedgerPdf(data: LedgerPdfInput): Promise<Buffer> {
 
   cur.y = drawSummaryCards(cur.page, fontBold, cur.y, [
     {
-      label: "Opening Balance",
+      label: "Cash In-hand",
       value: money(data.openingBalance),
       stacked: [
-        { label: "Cash in-hand", value: money(data.openingBalance) },
-        { label: "Zybo", value: money(data.openingBalanceAsPerZybo) },
-      ],
-      accent: BRAND,
-    },
-    {
-      label: "Paid Out",
-      value: money(data.paidOut),
-      stacked: [
+        { label: "Opening in-hand", value: money(data.openingBalance) },
         { label: data.paidLabel, value: money(data.paidOut) },
-        { label: "Suspense Paid", value: money(data.totalSuspensePaid) },
-      ],
-      accent: DANGER,
-    },
-    {
-      label: "Closing Balance",
-      value: money(data.closingBalance),
-      stacked: [
-        { label: "Cash in-hand", value: money(data.closingBalance) },
-        { label: "Zybo", value: money(data.balanceAsPerZybo) },
+        { label: "Closing in-hand", value: money(data.closingBalance) },
       ],
       accent: BRAND,
+    },
+    {
+      label: "Cash + Suspense",
+      value: money(data.openingBalanceAsPerZybo),
+      stacked: [
+        { label: "Opening Zybo", value: money(data.openingBalanceAsPerZybo) },
+        { label: "Total suspense paid", value: money(data.osrTotalOutstanding) },
+        { label: "Petty cash paid", value: money(data.pcrTotalPaid) },
+        { label: "Closing in-hand", value: money(data.closingBalance) },
+      ],
+      accent: WARN,
+    },
+    {
+      label: "As per Zybo",
+      value: money(data.balanceAsPerZybo),
+      stacked: [
+        { label: "Opening Zybo", value: money(data.openingBalanceAsPerZybo) },
+        { label: "Petty cash paid", value: money(data.pcrTotalPaid) },
+        { label: "Closing Zybo", value: money(data.balanceAsPerZybo) },
+      ],
+      accent: MUTED,
     },
   ]);
 

@@ -499,9 +499,22 @@ export async function replaceRequestJobNumbers(
   }
 }
 
-/** Paid requests still missing a Zybo voucher code. */
+/**
+ * Requests still missing a Zybo voucher code.
+ * Exact (petty cash paid) + closed suspense only — open suspense advances are excluded.
+ */
 export function pendingZyboVoucherWhere(alias = "r"): string {
-  return `${alias}.paid_at IS NOT NULL AND ${alias}.paid_amount IS NOT NULL AND (${alias}.zybo_voucher_code IS NULL OR TRIM(${alias}.zybo_voucher_code) = '')`;
+  return `${alias}.paid_at IS NOT NULL
+    AND ${alias}.paid_amount IS NOT NULL
+    AND (${alias}.zybo_voucher_code IS NULL OR TRIM(${alias}.zybo_voucher_code) = '')
+    AND (
+      ${alias}.request_type = 'exact'
+      OR (
+        ${alias}.request_type = 'suspense'
+        AND ${alias}.closed_at IS NOT NULL
+        AND ${alias}.status = 'Closed'
+      )
+    )`;
 }
 
 /** Paid Compassion requests still missing PCP number or JV. */

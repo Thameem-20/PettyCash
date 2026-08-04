@@ -21,11 +21,51 @@ import {
   type ClosedSuspenseLedgerRow,
   type LedgerTxnType,
 } from "@/lib/ledger";
-import { PageHeader, StatCard } from "@/components/page-chrome";
+import { PageHeader } from "@/components/page-chrome";
 import { money, formatDateOnly } from "@/lib/util";
 import LedgerDateFilter, { type LedgerDayPeriod } from "./LedgerDateFilter";
 
 export const dynamic = "force-dynamic";
+
+function LedgerMetricCard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: { label: string; value: string; tone?: "default" | "bad" | "good" | "warn" }[];
+}) {
+  const tones = {
+    default: "text-slate-900",
+    bad: "text-rose-600",
+    good: "text-emerald-600",
+    warn: "text-amber-600",
+  } as const;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </p>
+      <div className="divide-y divide-slate-100">
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="flex items-baseline justify-between gap-3 py-1 first:pt-0 last:pb-0"
+          >
+            <span className="min-w-0 truncate text-[11px] text-slate-500">{row.label}</span>
+            <span
+              className={`shrink-0 text-sm font-bold tabular-nums leading-none ${
+                tones[row.tone || "default"]
+              }`}
+            >
+              {row.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ledgerTypeLabel(type: string): string {
   const short: Partial<Record<LedgerTxnType, string>> = {
@@ -624,48 +664,64 @@ export default async function LedgerPage({
       <LedgerDateFilter period={period} date={date} maxDate={today} />
 
       <div className="mb-5 grid grid-cols-1 items-start gap-2 sm:grid-cols-3 md:gap-3">
-        <div className="flex flex-col gap-1">
-          <StatCard
-            compact
-            label="Opening — Cash In-hand"
-            value={money(summary.openingBalance)}
-            tone="info"
-          />
-          <StatCard
-            compact
-            label="Opening — Zybo"
-            value={money(summary.openingBalanceAsPerZybo)}
-            tone="neutral"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <StatCard
-            compact
-            label={`${paidLabel} · ${summary.paymentCount}`}
-            value={money(summary.totalPaidOut)}
-            tone="bad"
-          />
-          <StatCard
-            compact
-            label={`Suspense Paid · ${summary.suspensePaymentCount}`}
-            value={money(summary.totalSuspensePaid)}
-            tone="warn"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <StatCard
-            compact
-            label="Closing — Cash In-hand"
-            value={money(summary.closingBalance)}
-            tone="good"
-          />
-          <StatCard
-            compact
-            label="Closing — Zybo"
-            value={money(summary.balanceAsPerZybo)}
-            tone="neutral"
-          />
-        </div>
+        <LedgerMetricCard
+          title="Cash In-hand"
+          rows={[
+            { label: "Opening in-hand cash", value: money(summary.openingBalance) },
+            { label: paidLabel, value: money(summary.totalPaidOut), tone: "bad" },
+            {
+              label: "Closing in-hand",
+              value: money(summary.closingBalance),
+              tone: "good",
+            },
+          ]}
+        />
+        <LedgerMetricCard
+          title="Cash + Suspense"
+          rows={[
+            {
+              label: "Opening Zybo",
+              value: money(summary.openingBalanceAsPerZybo),
+            },
+            {
+              label: "Total suspense paid",
+              value: money(summary.totalSuspensePaid),
+              tone: "warn",
+            },
+            {
+              label: isToday
+                ? "Total petty cash paid today"
+                : "Total petty cash paid",
+              value: money(pcrTotalPaid),
+              tone: "bad",
+            },
+            {
+              label: "Closing in-hand cash",
+              value: money(summary.closingBalance),
+              tone: "good",
+            },
+          ]}
+        />
+        <LedgerMetricCard
+          title="As per Zybo"
+          rows={[
+            {
+              label: "Opening Zybo",
+              value: money(summary.openingBalanceAsPerZybo),
+            },
+            {
+              label: isToday
+                ? "Petty cash paid today"
+                : "Petty cash paid",
+              value: money(pcrTotalPaid),
+              tone: "bad",
+            },
+            {
+              label: "Closing Zybo",
+              value: money(summary.balanceAsPerZybo),
+            },
+          ]}
+        />
       </div>
 
       {summary.totalReceived > 0 && (

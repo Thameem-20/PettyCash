@@ -535,8 +535,8 @@ export interface DailyLedgerSummary {
   openingBalanceAsPerZybo: number;
   totalPaidOut: number;
   /**
-   * Sum of paid_amount on all currently open suspense (date-filter independent),
-   * matching the OSR list.
+   * Sum of outstanding on all currently open suspense (date-filter independent),
+   * matching OSR "Total outstanding".
    */
   totalSuspensePaid: number;
   suspensePaymentCount: number;
@@ -716,7 +716,7 @@ export async function getDailyLedgerSummary(
   // OSR UI: always show currently active open suspense (date filter independent).
   const openSuspenseEntries = await getActiveOpenSuspenseEntries(branchIds);
   const totalSuspensePaid = openSuspenseEntries.reduce(
-    (sum, e) => sum + Number(e.paid_amount),
+    (sum, e) => sum + Number(e.outstanding),
     0
   );
   const suspensePaymentCount = openSuspenseEntries.length;

@@ -129,12 +129,12 @@ export default async function ZyboVcPage({
     <div>
       <PageHeader
         title="Zybo VC"
-        subtitle={`${branchName} — enter the last 4 digits of the Zybo voucher for paid requests`}
+        subtitle={`${branchName} — Zybo VC for petty cash paid and closed suspense (not open advances)`}
       />
       <ZyboVcTable
         rows={tableRows}
         showBranch={scope.all || zyboIds.length > 1}
-        emptyMessage="All paid requests have a Zybo voucher code."
+        emptyMessage="No pending Zybo vouchers for petty cash paid or closed suspense."
       />
       <Pagination meta={meta} />
     </div>
