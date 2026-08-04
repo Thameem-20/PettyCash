@@ -32,18 +32,24 @@ function LedgerMetricCard({
   rows,
 }: {
   title: string;
-  rows: { label: string; value: string; tone?: "default" | "bad" | "good" | "warn" }[];
+  rows: {
+    label: string;
+    value: string;
+    tone?: "default" | "blue" | "brown" | "bad" | "good" | "orange";
+  }[];
 }) {
   const tones = {
-    default: "text-slate-900",
+    default: "text-black",
+    blue: "text-sky-600",
+    brown: "text-amber-800",
     bad: "text-rose-600",
-    good: "text-emerald-600",
-    warn: "text-amber-600",
+    good: "text-emerald-700",
+    orange: "text-orange-500",
   } as const;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-black">
         {title}
       </p>
       <div className="divide-y divide-slate-100">
@@ -52,9 +58,11 @@ function LedgerMetricCard({
             key={row.label}
             className="flex items-baseline justify-between gap-3 py-1 first:pt-0 last:pb-0"
           >
-            <span className="min-w-0 truncate text-[11px] text-slate-500">{row.label}</span>
+            <span className="min-w-0 truncate text-[11px] font-semibold text-black">
+              {row.label}
+            </span>
             <span
-              className={`shrink-0 text-sm font-bold tabular-nums leading-none ${
+              className={`shrink-0 text-sm font-extrabold tabular-nums leading-none ${
                 tones[row.tone || "default"]
               }`}
             >
@@ -622,7 +630,6 @@ export default async function LedgerPage({
 
   const summary = await getDailyLedgerSummary(scopeIds, date);
   const isToday = date === today;
-  const paidLabel = isToday ? "Paid Today" : "Paid Out";
 
   const exactEntries: DailyLedgerEntry[] = [];
   const otherEntries: DailyLedgerEntry[] = [];
@@ -667,10 +674,18 @@ export default async function LedgerPage({
         <LedgerMetricCard
           title="Cash In-hand"
           rows={[
-            { label: "Opening in-hand cash", value: money(summary.openingBalance) },
-            { label: paidLabel, value: money(summary.totalPaidOut), tone: "bad" },
             {
-              label: "Closing in-hand",
+              label: "Opening cash in hand",
+              value: money(summary.openingBalance),
+              tone: "blue",
+            },
+            {
+              label: isToday ? "Total Paid today" : "Total Paid",
+              value: money(summary.totalPaidOut),
+              tone: "brown",
+            },
+            {
+              label: "Closing cash in hand",
               value: money(summary.closingBalance),
               tone: "good",
             },
@@ -680,13 +695,13 @@ export default async function LedgerPage({
           title="Cash + Suspense"
           rows={[
             {
-              label: "Opening Zybo",
+              label: "Opening Zybo balance",
               value: money(summary.openingBalanceAsPerZybo),
             },
             {
               label: "Total suspense paid",
               value: money(summary.totalSuspensePaid),
-              tone: "warn",
+              tone: "orange",
             },
             {
               label: isToday
@@ -696,7 +711,7 @@ export default async function LedgerPage({
               tone: "bad",
             },
             {
-              label: "Closing in-hand cash",
+              label: "Closing cash in hand",
               value: money(summary.closingBalance),
               tone: "good",
             },
@@ -706,7 +721,7 @@ export default async function LedgerPage({
           title="As per Zybo"
           rows={[
             {
-              label: "Opening Zybo",
+              label: "Opening Zybo balance",
               value: money(summary.openingBalanceAsPerZybo),
             },
             {
@@ -717,7 +732,7 @@ export default async function LedgerPage({
               tone: "bad",
             },
             {
-              label: "Closing Zybo",
+              label: "Closing Zybo balance",
               value: money(summary.balanceAsPerZybo),
             },
           ]}

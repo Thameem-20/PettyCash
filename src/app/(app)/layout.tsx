@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import MainContent from "@/components/MainContent";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
+import RefreshButton from "@/components/RefreshButton";
 import { getFieldStaffNavBadges } from "@/lib/fieldStaffNav";
 import { getAccountsNavBadges } from "@/lib/accountsNav";
 import { getBranchProfile, codingType } from "@/lib/branchProfile";
@@ -123,6 +124,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Petty Cash
           </Link>
           <div className="flex shrink-0 items-center gap-2">
+            <RefreshButton tone="dark" />
             <WorkspaceSwitcher
               branches={JSON.parse(JSON.stringify(pickList))}
               current={activeBranch ?? (pickList[0]?.id ?? "all")}
@@ -143,6 +145,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="text-muted-foreground">{ROLE_LABELS[session.role]}</span>
           </div>
           <div className="flex items-center gap-3">
+            <RefreshButton />
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
               {session.name
                 .split(" ")

@@ -164,7 +164,7 @@ export async function GET(req: NextRequest) {
       openingBalance: summary.openingBalance,
       openingBalanceAsPerZybo: summary.openingBalanceAsPerZybo,
       paidOut: summary.totalPaidOut,
-      paidLabel: isToday ? "Paid Today" : "Paid Out",
+      paidLabel: isToday ? "Total Paid today" : "Total Paid",
       totalSuspensePaid: summary.totalSuspensePaid,
       closingBalance: summary.closingBalance,
       balanceAsPerZybo: summary.balanceAsPerZybo,
