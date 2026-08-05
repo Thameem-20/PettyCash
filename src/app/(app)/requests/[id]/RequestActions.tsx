@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { EnrichedRequest, RequestCharge } from "@/lib/requests";
 import type { SessionUser } from "@/lib/types";
-import { EXACT_STATUS, SUSPENSE_STATUS, OPEN_SUSPENSE_STATUSES, isStaffReimbursementRole } from "@/lib/status";
+import { EXACT_STATUS, SUSPENSE_STATUS, OPEN_SUSPENSE_STATUSES, CLOSED_STATUSES, isStaffReimbursementRole } from "@/lib/status";
 import { money, round2, formatDate } from "@/lib/util";
 import type { SuspenseReturnRow } from "@/lib/suspenseReturns";
 import ReceiptFileInput from "@/components/ReceiptFileInput";

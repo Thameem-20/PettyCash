@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/page-chrome";
 import StatusBadge from "@/components/StatusBadge";
 import RequestActivity from "@/components/RequestActivity";
 import RequestActions from "./RequestActions";
+import DeleteRequestPanel from "./DeleteRequestPanel";
 import RequestDetailsEditor from "./RequestDetailsEditor";
 import { AccountsPaymentProvider } from "./AccountsPaymentBalance";
 import RequestPageRefresh from "./RequestPageRefresh";
@@ -25,7 +26,7 @@ import PaymentReceiptDownloadButton from "@/components/PaymentReceiptDownloadBut
 import { resolveZyboBranchSegment } from "@/lib/zyboVoucherServer";
 import { getBranchBalance } from "@/lib/ledger";
 import { shouldShowAccountsBalanceBar } from "@/lib/accountsRequestBalance";
-import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
+import { CLOSED_STATUSES, EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { codingType, getBranchProfile } from "@/lib/branchProfile";
 import { listSuspenseReturns } from "@/lib/suspenseReturns";
 import { canAccSupAmend } from "@/lib/accSupAmend";
@@ -88,6 +89,12 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const canEditDetails =
     (session.role === "accounts_supervisor" || session.role === "admin") &&
     canAccSupAmend(req.status);
+  const canDeleteRequest =
+    (session.role === "accounts_supervisor" || session.role === "admin") &&
+    !CLOSED_STATUSES.includes(req.status) &&
+    req.paid_at == null &&
+    req.paid_amount == null &&
+    !hasOrphanPaymentLedger;
 
   const mainContent = (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-10">
@@ -133,6 +140,10 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               branchSegment={zyboBranchSegment}
             />
           ) : null}
+
+          {canDeleteRequest && (
+            <DeleteRequestPanel requestId={req.id} requestNo={req.request_no} />
+          )}
         </div>
 
         {/* Activity — 30% */}

@@ -7,6 +7,9 @@ import DescriptionAutocomplete from "@/components/DescriptionAutocomplete";
 import SuggestInput from "@/components/SuggestInput";
 import JobNumbersInput, { JobNumbersStatus } from "@/components/JobNumbersInput";
 import ReceiptFileInput from "@/components/ReceiptFileInput";
+import SubmitBlockingOverlay, {
+  postFormDataWithProgress,
+} from "@/components/SubmitBlockingOverlay";
 import {
   pickDefaultJobChargeType,
   resolveAllowedJobChargeTypes,
@@ -129,6 +132,8 @@ export default function NewRequestForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** 0–100 while uploading; null while server processes after upload. */
+  const [uploadProgress, setUploadProgress] = useState<number | null>(0);
 
   const scopeBranchId =
     typeof branchId === "number" ? branchId : defaultBranchId != null ? defaultBranchId : null;
@@ -434,6 +439,7 @@ export default function NewRequestForm({
 
   async function submit() {
     setSubmitting(true);
+    setUploadProgress(0);
     setError("");
     try {
       const fd = new FormData();
@@ -485,8 +491,14 @@ export default function NewRequestForm({
         c.files.forEach((f) => fd.append(`charge_${i}_receipts`, f));
       });
 
-      const res = await fetch("/api/requests", { method: "POST", body: fd });
-      const d = await res.json();
+      const d = await postFormDataWithProgress<{ ok: boolean; error?: string; id?: number }>(
+        "/api/requests",
+        fd,
+        (pct) => {
+          setUploadProgress(pct);
+          if (pct >= 100) setUploadProgress(null);
+        }
+      );
       if (!d.ok) {
         setError(d.error || "Submission failed");
         setConfirmOpen(false);
@@ -499,11 +511,24 @@ export default function NewRequestForm({
       setConfirmOpen(false);
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   }
 
   return (
     <form onSubmit={openConfirm} className="space-y-3">
+      <SubmitBlockingOverlay
+        open={submitting}
+        progress={uploadProgress}
+        title="Submitting request…"
+        detail={
+          uploadProgress == null
+            ? "Upload finished — saving your request on the server."
+            : charges.length > 1
+              ? `Uploading ${charges.length} charges with receipts…`
+              : "Uploading receipts…"
+        }
+      />
       <div className="card space-y-2 p-3">
         <label className="label">Request Type</label>
         <div className={`grid gap-1.5 ${suspenseEnabled ? "grid-cols-2" : "grid-cols-1"}`}>

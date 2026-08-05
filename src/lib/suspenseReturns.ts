@@ -17,7 +17,7 @@ export async function listSuspenseReturns(requestId: number): Promise<SuspenseRe
     `SELECT sr.id, sr.request_id, sr.amount, sr.note, sr.recorded_by_user_id,
             u.name AS recorded_by_name, sr.created_at
        FROM suspense_returns sr
-       JOIN users u ON u.id = sr.recorded_by_user_id
+       JOIN users u ON u.id = sr.recorded_by_user_id ll
       WHERE sr.request_id = ?
       ORDER BY sr.created_at ASC, sr.id ASC`,
     [requestId]

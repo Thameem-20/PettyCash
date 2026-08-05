@@ -80,22 +80,39 @@ function validateReceiptUpload(file: File) {
   }
 }
 
+/** Cap only huge phone photos; smaller receipts are left untouched. */
+const RECEIPT_MAX_EDGE = 3200;
+
 async function normalizeImageBuffer(
   buf: Buffer,
   mimeType: string
 ): Promise<{ imageBuf: Buffer; embedAs: "jpg" | "png" }> {
-  let imageBuf = await sharp(buf).rotate().toBuffer();
-  const meta = await sharp(imageBuf).metadata();
+  // Single sharp pipeline (auto-orient + optional portrait fix + mild max edge).
+  let pipeline = sharp(buf).rotate();
+  const meta = await pipeline.metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
 
+  pipeline = sharp(buf).rotate();
   // Portrait display: rotate landscape captures upright for receipt PDFs.
-  if (meta.width && meta.height && meta.width > meta.height) {
-    imageBuf = await sharp(imageBuf).rotate(90).toBuffer();
+  if (width > 0 && height > 0 && width > height) {
+    pipeline = pipeline.rotate(90);
   }
+  pipeline = pipeline.resize({
+    width: RECEIPT_MAX_EDGE,
+    height: RECEIPT_MAX_EDGE,
+    fit: "inside",
+    withoutEnlargement: true,
+  });
 
   if (mimeType === "image/png") {
-    return { imageBuf: await sharp(imageBuf).png().toBuffer(), embedAs: "png" };
+    return { imageBuf: await pipeline.png().toBuffer(), embedAs: "png" };
   }
-  return { imageBuf: await sharp(imageBuf).jpeg({ quality: 90 }).toBuffer(), embedAs: "jpg" };
+  // High quality — receipts must stay readable; only mildly shrink huge camera shots.
+  return {
+    imageBuf: await pipeline.jpeg({ quality: 92, mozjpeg: true }).toBuffer(),
+    embedAs: "jpg",
+  };
 }
 
 /** Exported for payment receipt PDF generation. */

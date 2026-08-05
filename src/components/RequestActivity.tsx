@@ -25,6 +25,7 @@ const ACTION_LABELS: Record<string, string> = {
   edit_amount: "Amount edited",
   edit_paid_amount: "Paid amount corrected",
   undo_payment: "Payment undone",
+  delete_request: "Request deleted",
   branch_override: "Branch override",
   issue: "Suspense issued",
   pay: "Marked as paid",

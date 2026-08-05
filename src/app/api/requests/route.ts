@@ -5,7 +5,7 @@ import { resolveOrCreateCategory } from "@/lib/categories";
 import { ChargeType } from "@/lib/types";
 import { resolveBranchFromJobNumbers, pickAccountsUser, parseJobNumbers } from "@/lib/routing";
 import { isElevated } from "@/lib/rbac";
-import { saveReceiptFiles } from "@/lib/files";
+import { saveReceiptFiles, deleteStoredFile } from "@/lib/files";
 import { money, nextRequestNo } from "@/lib/util";
 import { auditTx } from "@/lib/audit";
 import { isStaffReimbursementRole } from "@/lib/status";
@@ -413,7 +413,20 @@ export async function POST(req: NextRequest) {
         throw new ApiError(400, "Select or name the cash receiver");
     }
 
-    const requestId = await withTransaction(async (conn) => {
+    // Process / upload receipt PDFs outside the DB transaction so the connection
+    // is not held open during sharp + Azure I/O (especially multi-charge submits).
+    type SavedReceipt = Awaited<ReturnType<typeof saveReceiptFiles>>;
+    const savedReceipts: (SavedReceipt | null)[] = charges.map(() => null);
+    let requestId: number;
+    try {
+      await Promise.all(
+        charges.map(async (c, i) => {
+          if (c.files.length === 0) return;
+          savedReceipts[i] = await saveReceiptFiles(c.files);
+        })
+      );
+
+      requestId = await withTransaction(async (conn) => {
       const chargeRows: {
         description: string;
         amount: number;
@@ -529,9 +542,9 @@ export async function POST(req: NextRequest) {
 
       const chargeIds = await insertRequestCharges(conn, newId, chargeRows);
 
-      for (let i = 0; i < charges.length; i++) {
-        if (charges[i].files.length === 0) continue;
-        const saved = await saveReceiptFiles(charges[i].files);
+      for (let i = 0; i < savedReceipts.length; i++) {
+        const saved = savedReceipts[i];
+        if (!saved) continue;
         await conn.execute(
           `INSERT INTO receipts
              (request_id, charge_id, file_url, file_name, mime_type, uploaded_by_user_id, receipt_type)
@@ -566,6 +579,17 @@ export async function POST(req: NextRequest) {
 
       return newId;
     });
+    } catch (err) {
+      for (const saved of savedReceipts) {
+        if (!saved) continue;
+        try {
+          await deleteStoredFile(saved.relPath);
+        } catch {
+          // Best-effort cleanup of orphaned uploads.
+        }
+      }
+      throw err;
+    }
 
     // Notify the first person who needs to act (supervisor or accounts), if they opted in.
     const notifyIds = await resolveNewRequestNotifyUserIds({
