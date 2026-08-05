@@ -4,7 +4,6 @@ import { query, queryOne } from "@/lib/db";
 import {
   getRequestsWhere,
   countRequestsWhere,
-  accountsBranchIds,
   pendingZyboVoucherWhere,
   getJobNumbers,
 } from "@/lib/requests";
@@ -14,6 +13,7 @@ import {
   scopeIdsFrom,
   allowAllBranchesForRole,
 } from "@/lib/accountsBranch";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { codingType, getBranchProfile, branchIdsWithCodingType } from "@/lib/branchProfile";
 import { resolveZyboBranchSegment } from "@/lib/zyboVoucherServer";
@@ -31,20 +31,7 @@ export default async function ZyboVcPage({
 }) {
   const session = await requireRole(["accounts", "accounts_supervisor", "admin"]);
 
-  let branchList: { id: number; branch_name: string; branch_code: string }[];
-  if (session.role === "accounts" || session.primary_role === "accounts") {
-    const ids = await accountsBranchIds(session.id);
-    branchList = ids.length
-      ? await query(
-          "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) ORDER BY branch_name",
-          [ids]
-        )
-      : [];
-  } else {
-    branchList = await query(
-      "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-    );
-  }
+  const branchList = await getBranchListForSession(session);
 
   if (branchList.length === 0) {
     return (

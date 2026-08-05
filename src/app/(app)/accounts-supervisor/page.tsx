@@ -8,6 +8,7 @@ import {
   scopeIdsFrom,
   branchIdInSql,
 } from "@/lib/accountsBranch";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { getAllBranchBalances } from "@/lib/ledger";
 import { PageHeader, StatCard } from "@/components/page-chrome";
@@ -35,9 +36,7 @@ export default async function AccountsSupervisorPage({
 }) {
   const session = await requireRole(["accounts_supervisor", "admin"]);
 
-  const branchList = await query<{ id: number; branch_name: string; branch_code: string }>(
-    "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-  );
+  const branchList = await getBranchListForSession(session);
 
   if (branchList.length === 0) {
     return (

@@ -1,11 +1,10 @@
 import { requireSession } from "@/lib/session";
-import { query } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/rbac";
 import {
   allowAllBranchesForRole,
   resolveTopBarBranch,
-  type AccountsBranch,
 } from "@/lib/accountsBranch";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { PageHeader } from "@/components/page-chrome";
@@ -23,16 +22,7 @@ export default async function SettingsPage() {
   const memberships = await listWorkspaceBranchesForUser(session.id);
   const membershipById = new Map(memberships.map((b) => [b.id, b]));
 
-  // Elevated roles can pick any active branch; others only Control Panel memberships.
-  const pickList: AccountsBranch[] = allowAll
-    ? await query(
-        "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-      )
-    : memberships.map((b) => ({
-        id: b.id,
-        branch_name: b.branch_name,
-        branch_code: b.branch_code,
-      }));
+  const pickList = await getBranchListForSession(session);
 
   const canPickBranch = pickList.length > 0;
   const activeParam = resolveActiveBranchParam(session.preferred_branch_param);

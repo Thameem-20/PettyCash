@@ -6,6 +6,7 @@ import {
   branchScopeLabel,
   scopeIdsFrom,
 } from "@/lib/accountsBranch";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { countRequestsWhere, getRequestsWhere } from "@/lib/requests";
 import { PageHeader } from "@/components/page-chrome";
@@ -24,9 +25,7 @@ export default async function SupervisorCoverPage({
 }) {
   const session = await requireRole(["accounts_supervisor", "admin"]);
 
-  const branches = await query<{ id: number; branch_name: string; branch_code: string }>(
-    "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-  );
+  const branches = await getBranchListForSession(session);
 
   if (branches.length === 0) {
     return (

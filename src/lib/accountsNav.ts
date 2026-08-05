@@ -1,6 +1,4 @@
-import { query } from "./db";
 import {
-  accountsBranchIds,
   countPendingZyboVouchers,
   countPendingPcpJv,
   countRequestsWhere,
@@ -10,8 +8,8 @@ import {
   allowAllBranchesForRole,
   resolveBranchScope,
   scopeIdsFrom,
-  type AccountsBranch,
 } from "./accountsBranch";
+import { getBranchListForSession } from "./accountsBranchServer";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "./status";
 import type { AccountsNavBadges } from "./accountsNavBadges";
 
@@ -28,20 +26,7 @@ export async function getAccountsNavBadges(session: {
   const role = session.primary_role || session.role;
   if (!ACCOUNTS_NAV_ROLES.has(role) && !ACCOUNTS_NAV_ROLES.has(session.role)) return null;
 
-  let branchList: AccountsBranch[];
-  if (session.role === "accounts" || role === "accounts") {
-    const ids = await accountsBranchIds(session.id);
-    branchList = ids.length
-      ? await query(
-          "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) ORDER BY branch_name",
-          [ids]
-        )
-      : [];
-  } else {
-    branchList = await query(
-      "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-    );
-  }
+  const branchList = await getBranchListForSession(session);
 
   if (branchList.length === 0) {
     return { pendingZyboVoucher: 0, pendingPcpJv: 0, pendingSupervisorCover: 0 };

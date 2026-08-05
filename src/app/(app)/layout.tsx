@@ -16,10 +16,8 @@ import {
   resolveTopBarBranch,
   resolveBranchScope,
   scopeIdsFrom,
-  type AccountsBranch,
 } from "@/lib/accountsBranch";
-import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
-import { query } from "@/lib/db";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import AutoRefresh from "@/components/AutoRefresh";
 import { isMaintenanceMode } from "@/lib/appSettings";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
@@ -52,16 +50,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const primary = session.primary_role || session.role;
   const allowAll = allowAllBranchesForRole(primary);
-  const memberships = await listWorkspaceBranchesForUser(session.id);
-  const pickList: AccountsBranch[] = allowAll
-    ? await query(
-        "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-      )
-    : memberships.map((b) => ({
-        id: b.id,
-        branch_name: b.branch_name,
-        branch_code: b.branch_code,
-      }));
+  // Acc Sup / accounts: assigned branches only (empty Acc Sup assignment = all).
+  // Admin: all active. Supervisor/etc: Control Panel memberships.
+  const pickList = await getBranchListForSession(session);
   const activeBranch =
     pickList.length > 0
       ? resolveTopBarBranch(session.preferred_branch_param, pickList, allowAll)

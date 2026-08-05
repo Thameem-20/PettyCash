@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/session";
 import { query, queryOne } from "@/lib/db";
-import { accountsBranchIds } from "@/lib/requests";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import {
   resolveBranchScope,
   branchScopeLabel,
@@ -593,20 +593,7 @@ export default async function LedgerPage({
 }) {
   const session = await requireRole(["accounts", "accounts_supervisor", "admin"]);
 
-  let branchList: { id: number; branch_name: string; branch_code: string }[];
-  if (session.role === "accounts") {
-    const ids = await accountsBranchIds(session.id);
-    branchList = ids.length
-      ? await query(
-          "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) ORDER BY branch_name",
-          [ids]
-        )
-      : [];
-  } else {
-    branchList = await query(
-      "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-    );
-  }
+  const branchList = await getBranchListForSession(session);
 
   if (branchList.length === 0) {
     return (

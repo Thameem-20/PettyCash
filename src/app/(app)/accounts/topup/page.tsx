@@ -1,6 +1,5 @@
 import { requireRole } from "@/lib/session";
 import { query } from "@/lib/db";
-import { accountsBranchIds } from "@/lib/requests";
 import {
   resolveBranchScope,
   branchScopeLabel,
@@ -9,6 +8,7 @@ import {
   allowAllBranchesForRole,
   resolveAccountsBranch,
 } from "@/lib/accountsBranch";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { getTopUpsWhere, countTopUpsWhere } from "@/lib/topup";
 import { PageHeader } from "@/components/page-chrome";
@@ -27,20 +27,7 @@ export default async function AccountsTopUpPage({
 }) {
   const session = await requireRole(["accounts", "accounts_supervisor", "admin"]);
 
-  let branches: { id: number; branch_name: string; branch_code: string }[];
-  if (session.role === "accounts") {
-    const ids = await accountsBranchIds(session.id);
-    branches = ids.length
-      ? await query(
-          "SELECT id, branch_name, branch_code FROM branches WHERE id IN (?) ORDER BY branch_name",
-          [ids]
-        )
-      : [];
-  } else {
-    branches = await query(
-      "SELECT id, branch_name, branch_code FROM branches WHERE is_active = 1 ORDER BY branch_name"
-    );
-  }
+  const branches = await getBranchListForSession(session);
 
   const banks = await query<Pick<BankAccount, "id" | "branch_id" | "bank_name" | "last_four">>(
     "SELECT id, branch_id, bank_name, last_four FROM bank_accounts WHERE is_active = 1 ORDER BY bank_name, last_four"

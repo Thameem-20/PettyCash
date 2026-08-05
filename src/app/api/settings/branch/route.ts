@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
 import { allowAllBranchesForRole } from "@/lib/accountsBranch";
-import { listWorkspaceBranchesForUser } from "@/lib/branchMembership";
-import { query } from "@/lib/db";
+import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { normalizeBranchParam, setUserBranchPreference } from "@/lib/preferredBranch";
 
 /** Legacy cookie name — cleared so old clients stop overriding DB preference. */
@@ -22,15 +21,8 @@ export async function PUT(req: NextRequest) {
 
     const primary = session.primary_role || session.role;
     const allowAll = allowAllBranchesForRole(primary);
-    const memberships = await listWorkspaceBranchesForUser(session.id);
-
-    const allowedIds = new Set(memberships.map((b) => b.id));
-    if (allowAll) {
-      const all = await query<{ id: number }>(
-        "SELECT id FROM branches WHERE is_active = 1"
-      );
-      for (const b of all) allowedIds.add(b.id);
-    }
+    const pickList = await getBranchListForSession(session);
+    const allowedIds = new Set(pickList.map((b) => b.id));
 
     if (allowedIds.size === 0) throw new ApiError(400, "No branches available");
 
