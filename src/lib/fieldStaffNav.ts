@@ -1,4 +1,4 @@
-import { query, queryOne } from "./db";
+import { queryOne } from "./db";
 import { CLOSED_STATUSES, EXACT_STATUS, OPEN_SUSPENSE_STATUSES, SUSPENSE_STATUS } from "./status";
 
 export type FieldStaffNavBadges = {
@@ -60,25 +60,4 @@ export async function getFieldStaffNavBadges(
     opsAssigned: Number(opsRow?.c || 0),
     pendingApprovals: Number(approvalsRow?.c || 0),
   };
-}
-
-/** Pending supervisor approvals grouped by branch (for workspace switcher badges). */
-export async function getSupervisorPendingApprovalsByBranch(
-  userId: number,
-  branchIds: number[]
-): Promise<Record<number, number>> {
-  if (branchIds.length === 0) return {};
-  const ph = branchIds.map(() => "?").join(",");
-  const rows = await query<{ branch_id: number; c: number }>(
-    `SELECT branch_id, COUNT(*) AS c
-       FROM petty_cash_requests
-      WHERE supervisor_id = ?
-        AND status IN (?, ?)
-        AND branch_id IN (${ph})
-      GROUP BY branch_id`,
-    [userId, EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR, ...branchIds]
-  );
-  const map: Record<number, number> = {};
-  for (const row of rows) map[Number(row.branch_id)] = Number(row.c);
-  return map;
 }

@@ -123,6 +123,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
       if (request.charge_type === "job" && jobNumbersInput) {
         await replaceRequestJobNumbers(conn, id, jobNumbersInput);
+
+        // UI / getJobNumbers prefer request_charges.job_number — keep them in sync
+        // with the corrected jobs (header + junction alone leave the old charge value).
+        const [chargeRows] = await conn.query<any[]>(
+          `SELECT id FROM request_charges WHERE request_id = ? ORDER BY sort_order, id`,
+          [id]
+        );
+        if (chargeRows.length === 1 || jobNumbersInput.length === 1) {
+          await conn.execute(
+            `UPDATE request_charges SET job_number = ? WHERE request_id = ?`,
+            [jobNumbersInput[0], id]
+          );
+        } else {
+          for (let i = 0; i < chargeRows.length; i++) {
+            const job = jobNumbersInput[i] ?? jobNumbersInput[0];
+            await conn.execute(`UPDATE request_charges SET job_number = ? WHERE id = ?`, [
+              job,
+              chargeRows[i].id,
+            ]);
+          }
+        }
       }
 
       await conn.execute(

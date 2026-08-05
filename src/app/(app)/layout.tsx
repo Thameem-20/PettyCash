@@ -7,10 +7,8 @@ import MobileNav from "@/components/MobileNav";
 import MainContent from "@/components/MainContent";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import RefreshButton from "@/components/RefreshButton";
-import {
-  getFieldStaffNavBadges,
-  getSupervisorPendingApprovalsByBranch,
-} from "@/lib/fieldStaffNav";
+import { getFieldStaffNavBadges } from "@/lib/fieldStaffNav";
+import { getWorkspaceBranchBadges } from "@/lib/workspaceBranchBadges";
 import { getAccountsNavBadges } from "@/lib/accountsNav";
 import { getBranchProfile, codingType } from "@/lib/branchProfile";
 import {
@@ -101,12 +99,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const accountsBadges = await getAccountsNavBadges(session);
 
-  const isSupervisor =
-    session.role === "supervisor" || session.primary_role === "supervisor";
-  const pendingApprovalsByBranch =
-    isSupervisor && pickList.length > 0
-      ? await getSupervisorPendingApprovalsByBranch(
-          session.id,
+  const branchBadges =
+    pickList.length > 0
+      ? await getWorkspaceBranchBadges(
+          session,
           pickList.map((b) => b.id)
         )
       : {};
@@ -118,9 +114,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     userName: session.name,
     userEmail: session.email,
     userRole: session.role,
-    pendingApprovalsByBranch: JSON.parse(
-      JSON.stringify(pendingApprovalsByBranch)
-    ) as Record<number, number>,
+    branchBadges: JSON.parse(JSON.stringify(branchBadges)) as typeof branchBadges,
   };
 
   const switcher = <WorkspaceSwitcher {...switcherProps} />;

@@ -7,10 +7,18 @@ import { ArrowLeftRight, X } from "lucide-react";
 import { ROLE_LABELS } from "@/lib/rbac";
 import type { Role } from "@/lib/types";
 import LogoutButton from "@/components/LogoutButton";
+import type { WorkspaceBranchBadge } from "@/lib/workspaceBranchBadges";
 
 type Branch = { id: number; branch_name: string; branch_code?: string };
 
 const ANIM_MS = 280;
+
+function branchHasPending(badge?: WorkspaceBranchBadge): boolean {
+  return Boolean(
+    (badge?.pendingApprovals && badge.pendingApprovals > 0) ||
+      (badge?.pendingPayments && badge.pendingPayments > 0)
+  );
+}
 
 export default function WorkspaceSwitcher({
   branches,
@@ -20,7 +28,7 @@ export default function WorkspaceSwitcher({
   userEmail,
   userRole,
   tone = "light",
-  pendingApprovalsByBranch = {},
+  branchBadges = {},
 }: {
   branches: Branch[];
   current: number | "all";
@@ -29,8 +37,8 @@ export default function WorkspaceSwitcher({
   userEmail: string;
   userRole: Role;
   tone?: "light" | "dark";
-  /** branchId → pending supervisor approval count */
-  pendingApprovalsByBranch?: Record<number, number>;
+  /** branchId → pending queue badges */
+  branchBadges?: Record<number, WorkspaceBranchBadge>;
 }) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
@@ -49,12 +57,12 @@ export default function WorkspaceSwitcher({
   }, [current]);
 
   const otherBranchPending = useMemo(() => {
-    return Object.entries(pendingApprovalsByBranch).some(([branchId, count]) => {
-      if (!count || count <= 0) return false;
-      if (current === "all") return false;
-      return Number(branchId) !== current;
+    if (current === "all") return false;
+    return Object.entries(branchBadges).some(([branchId, badge]) => {
+      if (Number(branchId) === current) return false;
+      return branchHasPending(badge);
     });
-  }, [pendingApprovalsByBranch, current]);
+  }, [branchBadges, current]);
 
   function openPanel() {
     setError("");
@@ -189,7 +197,9 @@ export default function WorkspaceSwitcher({
                   <div className="space-y-2">
                     {branches.map((b) => {
                       const active = selected === b.id;
-                      const pending = Number(pendingApprovalsByBranch[b.id] || 0);
+                      const badge = branchBadges[b.id];
+                      const approvals = badge?.pendingApprovals || 0;
+                      const payments = badge?.pendingPayments || 0;
                       return (
                         <button
                           key={b.id}
@@ -215,10 +225,19 @@ export default function WorkspaceSwitcher({
                                 <p className="mt-0.5 text-xs text-slate-500">{b.branch_code}</p>
                               )}
                             </div>
-                            {pending > 0 && (
-                              <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold leading-tight text-rose-700">
-                                {pending} pending approvals
-                              </span>
+                            {(approvals > 0 || payments > 0) && (
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                {approvals > 0 && (
+                                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold leading-tight text-rose-700">
+                                    {approvals} pending approvals
+                                  </span>
+                                )}
+                                {payments > 0 && (
+                                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold leading-tight text-sky-800">
+                                    {payments} pending payments
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                           {active && (
