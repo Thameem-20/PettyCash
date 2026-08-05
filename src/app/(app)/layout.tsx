@@ -7,7 +7,10 @@ import MobileNav from "@/components/MobileNav";
 import MainContent from "@/components/MainContent";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import RefreshButton from "@/components/RefreshButton";
-import { getFieldStaffNavBadges } from "@/lib/fieldStaffNav";
+import {
+  getFieldStaffNavBadges,
+  getSupervisorPendingApprovalsByBranch,
+} from "@/lib/fieldStaffNav";
 import { getAccountsNavBadges } from "@/lib/accountsNav";
 import { getBranchProfile, codingType } from "@/lib/branchProfile";
 import {
@@ -98,16 +101,29 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const accountsBadges = await getAccountsNavBadges(session);
 
-  const switcher = (
-    <WorkspaceSwitcher
-      branches={JSON.parse(JSON.stringify(pickList))}
-      current={activeBranch ?? (pickList[0]?.id ?? "all")}
-      allowAll={allowAll}
-      userName={session.name}
-      userEmail={session.email}
-      userRole={session.role}
-    />
-  );
+  const isSupervisor =
+    session.role === "supervisor" || session.primary_role === "supervisor";
+  const pendingApprovalsByBranch =
+    isSupervisor && pickList.length > 0
+      ? await getSupervisorPendingApprovalsByBranch(
+          session.id,
+          pickList.map((b) => b.id)
+        )
+      : {};
+
+  const switcherProps = {
+    branches: JSON.parse(JSON.stringify(pickList)) as typeof pickList,
+    current: (activeBranch ?? (pickList[0]?.id ?? "all")) as number | "all",
+    allowAll,
+    userName: session.name,
+    userEmail: session.email,
+    userRole: session.role,
+    pendingApprovalsByBranch: JSON.parse(
+      JSON.stringify(pendingApprovalsByBranch)
+    ) as Record<number, number>,
+  };
+
+  const switcher = <WorkspaceSwitcher {...switcherProps} />;
 
   return (
     <div className="min-h-screen md:flex">
@@ -142,15 +158,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             <RefreshButton tone="dark" />
-            <WorkspaceSwitcher
-              branches={JSON.parse(JSON.stringify(pickList))}
-              current={activeBranch ?? (pickList[0]?.id ?? "all")}
-              allowAll={allowAll}
-              userName={session.name}
-              userEmail={session.email}
-              userRole={session.role}
-              tone="dark"
-            />
+            <WorkspaceSwitcher {...switcherProps} tone="dark" />
           </div>
         </header>
 

@@ -40,6 +40,7 @@ const TABS = [
   { key: "settlement_pending", label: "Settlement Pending" },
   { key: "returned", label: "Returned Cash" },
   { key: "partial_returns", label: "Partial Returns" },
+  { key: "acc_sup_pending", label: "Acc Sup Pending", highlight: "blue" as const },
   { key: "balance", label: "Branch Cash Balance" },
 ] as const;
 
@@ -65,34 +66,39 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
       ? [...branchParams, ...ACCOUNTS_PENDING_STATUSES]
       : [...branchParams, ...ACCOUNTS_PENDING_STATUSES, EXACT_STATUS.PENDING_ACC_SUP];
 
-  const [pending, paidToday, openSusp, settlement, returned, partialReturns] = await Promise.all([
-    tabCount(`SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${pendingWhere}`, pendingParams),
-    tabCount(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND DATE(paid_at) = CURDATE()`,
-      branchParams
-    ),
-    tabCount(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (${phSusp})`,
-      [...branchParams, ...OPEN_SUSPENSE_STATUSES]
-    ),
-    tabCount(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (?, ?)`,
-      [...branchParams, SUSPENSE_STATUS.RECEIPT_SUBMITTED, SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW]
-    ),
-    tabCount(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND returned_amount IS NOT NULL AND returned_amount > 0`,
-      branchParams
-    ),
-    // Still-open suspense with at least one partial return recorded.
-    tabCount(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE ${branchSql}
-          AND status IN (${phSusp})
-          AND returned_amount IS NOT NULL AND returned_amount > 0
-          AND EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = petty_cash_requests.id)`,
-      [...branchParams, ...OPEN_SUSPENSE_STATUSES]
-    ),
-  ]);
+  const [pending, paidToday, openSusp, settlement, returned, partialReturns, accSupPending] =
+    await Promise.all([
+      tabCount(`SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${pendingWhere}`, pendingParams),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND DATE(paid_at) = CURDATE()`,
+        branchParams
+      ),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (${phSusp})`,
+        [...branchParams, ...OPEN_SUSPENSE_STATUSES]
+      ),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (?, ?)`,
+        [...branchParams, SUSPENSE_STATUS.RECEIPT_SUBMITTED, SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW]
+      ),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND returned_amount IS NOT NULL AND returned_amount > 0`,
+        branchParams
+      ),
+      // Still-open suspense with at least one partial return recorded.
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests
+          WHERE ${branchSql}
+            AND status IN (${phSusp})
+            AND returned_amount IS NOT NULL AND returned_amount > 0
+            AND EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = petty_cash_requests.id)`,
+        [...branchParams, ...OPEN_SUSPENSE_STATUSES]
+      ),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status = ?`,
+        [...branchParams, EXACT_STATUS.PENDING_ACC_SUP]
+      ),
+    ]);
 
   return {
     pending,
@@ -101,6 +107,7 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
     settlement_pending: settlement,
     returned,
     partial_returns: partialReturns,
+    acc_sup_pending: accSupPending,
   };
 }
 
@@ -224,6 +231,9 @@ export default async function AccountsPage({
         `EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = r.id)`
       );
       params.push(...scopeIds, ...OPEN_SUSPENSE_STATUSES);
+    } else if (tab === "acc_sup_pending") {
+      whereParts.push(`r.branch_id IN (${phScope})`, `r.status = ?`);
+      params.push(...scopeIds, EXACT_STATUS.PENDING_ACC_SUP);
     }
 
     if (typeParam) {
@@ -345,7 +355,9 @@ export default async function AccountsPage({
             emptyMessage={
               hasFilters
                 ? "No requests match your search or filters."
-                : "Nothing here right now."
+                : tab === "acc_sup_pending"
+                  ? "No requests waiting on Accounts Supervisor."
+                  : "Nothing here right now."
             }
             usePaidAmount={tab === "paid_today"}
             useReturnedAmount={tab === "returned" || tab === "partial_returns"}

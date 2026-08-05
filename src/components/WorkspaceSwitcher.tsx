@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowLeftRight, X } from "lucide-react";
@@ -20,6 +20,7 @@ export default function WorkspaceSwitcher({
   userEmail,
   userRole,
   tone = "light",
+  pendingApprovalsByBranch = {},
 }: {
   branches: Branch[];
   current: number | "all";
@@ -28,6 +29,8 @@ export default function WorkspaceSwitcher({
   userEmail: string;
   userRole: Role;
   tone?: "light" | "dark";
+  /** branchId → pending supervisor approval count */
+  pendingApprovalsByBranch?: Record<number, number>;
 }) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
@@ -44,6 +47,14 @@ export default function WorkspaceSwitcher({
   useEffect(() => {
     setSelected(current);
   }, [current]);
+
+  const otherBranchPending = useMemo(() => {
+    return Object.entries(pendingApprovalsByBranch).some(([branchId, count]) => {
+      if (!count || count <= 0) return false;
+      if (current === "all") return false;
+      return Number(branchId) !== current;
+    });
+  }, [pendingApprovalsByBranch, current]);
 
   function openPanel() {
     setError("");
@@ -178,6 +189,7 @@ export default function WorkspaceSwitcher({
                   <div className="space-y-2">
                     {branches.map((b) => {
                       const active = selected === b.id;
+                      const pending = Number(pendingApprovalsByBranch[b.id] || 0);
                       return (
                         <button
                           key={b.id}
@@ -190,16 +202,25 @@ export default function WorkspaceSwitcher({
                               : "border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50"
                           }`}
                         >
-                          <p
-                            className={`text-sm font-semibold ${
-                              active ? "text-brand-800" : "text-slate-800"
-                            }`}
-                          >
-                            {b.branch_name}
-                          </p>
-                          {b.branch_code && (
-                            <p className="mt-0.5 text-xs text-slate-500">{b.branch_code}</p>
-                          )}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p
+                                className={`text-sm font-semibold ${
+                                  active ? "text-brand-800" : "text-slate-800"
+                                }`}
+                              >
+                                {b.branch_name}
+                              </p>
+                              {b.branch_code && (
+                                <p className="mt-0.5 text-xs text-slate-500">{b.branch_code}</p>
+                              )}
+                            </div>
+                            {pending > 0 && (
+                              <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold leading-tight text-rose-700">
+                                {pending} pending approvals
+                              </span>
+                            )}
+                          </div>
                           {active && (
                             <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-600">
                               Active
@@ -255,12 +276,22 @@ export default function WorkspaceSwitcher({
       <button
         type="button"
         onClick={openPanel}
-        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-semibold transition sm:gap-2 sm:px-2.5 sm:text-sm ${triggerClass}`}
-        aria-label="Switch workspace branch"
+        className={`relative inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-semibold transition sm:gap-2 sm:px-2.5 sm:text-sm ${triggerClass}`}
+        aria-label={
+          otherBranchPending
+            ? "Switch workspace branch — pending approvals in other branches"
+            : "Switch workspace branch"
+        }
         title={currentLabel}
       >
         <ArrowLeftRight className="size-3.5 shrink-0 sm:size-4" />
         <span className="max-w-[7rem] truncate sm:max-w-[10rem]">{currentLabel}</span>
+        {otherBranchPending && (
+          <span
+            className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-rose-500 ring-2 ring-white"
+            aria-hidden
+          />
+        )}
       </button>
       {panel}
     </>
