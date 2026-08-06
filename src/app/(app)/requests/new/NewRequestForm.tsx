@@ -732,6 +732,10 @@ export default function NewRequestForm({
             requireCompassionDriver={chargeType === "truck_trailer"}
             drivers={drivers}
             descriptionLocked={fuelActive}
+            excludeDescriptions={charges
+              .filter((c) => c.key !== charge.key)
+              .map((c) => c.description.trim())
+              .filter(Boolean)}
             onUpdate={(patch) => updateCharge(charge.key, patch)}
             onDescriptionChange={(desc) => onChargeDescriptionChange(charge.key, desc)}
             onRemove={() => setCharges((prev) => prev.filter((c) => c.key !== charge.key))}
@@ -940,6 +944,7 @@ function ChargeCard({
   requireCompassionDriver,
   drivers,
   descriptionLocked,
+  excludeDescriptions = [],
   onUpdate,
   onDescriptionChange,
   onRemove,
@@ -953,6 +958,7 @@ function ChargeCard({
   requireCompassionDriver?: boolean;
   drivers?: Driver[];
   descriptionLocked?: boolean;
+  excludeDescriptions?: string[];
   onUpdate: (patch: Partial<ChargeGroup>) => void;
   onDescriptionChange: (desc: string) => void;
   onRemove: () => void;
@@ -1045,6 +1051,7 @@ function ChargeCard({
             value={charge.description}
             onChange={onDescriptionChange}
             placeholder="e.g. Labour Charges"
+            exclude={excludeDescriptions}
           />
         )}
       </div>

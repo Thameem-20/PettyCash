@@ -6,15 +6,23 @@ export default function DescriptionAutocomplete({
   value,
   onChange,
   placeholder = "What is this payment for?",
+  exclude = [],
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  /** Descriptions already used (e.g. other charges) — hidden from suggestions. */
+  exclude?: string[];
 }) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const excludeKey = exclude
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join("\0");
 
   useEffect(() => {
     const q = value.trim();
@@ -23,17 +31,23 @@ export default function DescriptionAutocomplete({
       setOpen(false);
       return;
     }
+    const blockedExtra = excludeKey ? excludeKey.split("\0") : [];
     const t = setTimeout(async () => {
       const res = await fetch(`/api/meta/descriptions?q=${encodeURIComponent(q)}`);
       const d = await res.json();
       if (d.ok && Array.isArray(d.suggestions)) {
-        setSuggestions(d.suggestions);
-        setOpen(d.suggestions.length > 0);
+        const blocked = new Set([q.toLowerCase(), ...blockedExtra]);
+        // Hide the already-selected value and any descriptions used on other charges.
+        const filtered = (d.suggestions as string[]).filter(
+          (s) => !blocked.has(s.trim().toLowerCase())
+        );
+        setSuggestions(filtered);
+        setOpen(filtered.length > 0);
         setActiveIdx(-1);
       }
     }, 200);
     return () => clearTimeout(t);
-  }, [value]);
+  }, [value, excludeKey]);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {

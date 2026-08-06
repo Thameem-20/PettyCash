@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { queryOne } from "@/lib/db";
 import { ApiError, fail, requireApiSession } from "@/lib/api";
-import { readReceiptFile } from "@/lib/files";
+import { contentDispositionHeader, readReceiptFile } from "@/lib/files";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return new NextResponse(buf as any, {
       headers: {
         "Content-Type": topUp.attachment_mime || "application/octet-stream",
-        "Content-Disposition": `inline; filename="${topUp.attachment_name || "attachment"}"`,
+        "Content-Disposition": contentDispositionHeader(
+          topUp.attachment_name || "attachment"
+        ),
         "Cache-Control": "private, max-age=3600",
       },
     });

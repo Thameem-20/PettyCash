@@ -70,7 +70,7 @@ export default async function ApprovalsPage({
     params = isAdmin
       ? [...branchParams, ...pendingStatuses]
       : [...branchParams, ...pendingStatuses, session.id];
-    order = "r.created_at ASC";
+    order = "r.created_at DESC";
     emptyMessage = `No requests pending your approval in ${branchName}.`;
   } else if (tab === "approved") {
     where = isAdmin

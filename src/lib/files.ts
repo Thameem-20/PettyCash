@@ -83,27 +83,35 @@ function validateReceiptUpload(file: File) {
 /** Cap only huge phone photos; smaller receipts are left untouched. */
 const RECEIPT_MAX_EDGE = 3200;
 
+/**
+ * Content-Disposition value safe for HTTP ByteString headers.
+ * Strips/encodes unicode (e.g. U+202F in screenshot names) that would otherwise 500.
+ */
+export function contentDispositionHeader(fileName: string, download = false): string {
+  const raw = (fileName || "file").replace(/["\\\r\n]/g, "_");
+  const ascii = raw.replace(/[^\x20-\x7E]+/g, "_").replace(/_+/g, "_") || "file";
+  const type = download ? "attachment" : "inline";
+  const encoded = encodeURIComponent(raw);
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+/** A4 in PDF points (72 dpi) — max size only; page matches the image (no white letterbox). */
+const A4_W = 595.28;
+const A4_H = 841.89;
+
 async function normalizeImageBuffer(
   buf: Buffer,
   mimeType: string
 ): Promise<{ imageBuf: Buffer; embedAs: "jpg" | "png" }> {
-  // Single sharp pipeline (auto-orient + optional portrait fix + mild max edge).
-  let pipeline = sharp(buf).rotate();
-  const meta = await pipeline.metadata();
-  const width = meta.width ?? 0;
-  const height = meta.height ?? 0;
-
-  pipeline = sharp(buf).rotate();
-  // Portrait display: rotate landscape captures upright for receipt PDFs.
-  if (width > 0 && height > 0 && width > height) {
-    pipeline = pipeline.rotate(90);
-  }
-  pipeline = pipeline.resize({
-    width: RECEIPT_MAX_EDGE,
-    height: RECEIPT_MAX_EDGE,
-    fit: "inside",
-    withoutEnlargement: true,
-  });
+  // EXIF auto-orient only — keep portrait/landscape as captured (no forced rotate).
+  const pipeline = sharp(buf)
+    .rotate()
+    .resize({
+      width: RECEIPT_MAX_EDGE,
+      height: RECEIPT_MAX_EDGE,
+      fit: "inside",
+      withoutEnlargement: true,
+    });
 
   if (mimeType === "image/png") {
     return { imageBuf: await pipeline.png().toBuffer(), embedAs: "png" };
@@ -125,9 +133,18 @@ async function addImagePage(pdfDoc: PDFDocument, buf: Buffer, mimeType: string):
 
   const image =
     embedAs === "png" ? await pdfDoc.embedPng(imageBuf) : await pdfDoc.embedJpg(imageBuf);
-  const { width, height } = image.scale(1);
-  const page = pdfDoc.addPage([width, height]);
-  page.drawImage(image, { x: 0, y: 0, width, height });
+  const imgW = image.width;
+  const imgH = image.height;
+
+  // Shrink to fit within A4 if needed; page size = image only (no white background).
+  const maxW = imgW >= imgH ? A4_H : A4_W;
+  const maxH = imgW >= imgH ? A4_W : A4_H;
+  const scale = Math.min(1, maxW / imgW, maxH / imgH);
+  const drawW = imgW * scale;
+  const drawH = imgH * scale;
+
+  const page = pdfDoc.addPage([drawW, drawH]);
+  page.drawImage(image, { x: 0, y: 0, width: drawW, height: drawH });
 }
 
 /** Append a stored receipt file (PDF or image) to an existing PDF document. */
