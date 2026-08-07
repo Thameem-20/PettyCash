@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
-import { queryOne, withTransaction } from "@/lib/db";
+import { query, queryOne, withTransaction } from "@/lib/db";
 import { PettyCashRequest, type Role } from "@/lib/types";
 import { replaceRequestJobNumbers } from "@/lib/requests";
 import { parseJobNumbers, resolveBranchFromJobNumbers, pickAccountsUser } from "@/lib/routing";
@@ -11,6 +11,13 @@ import {
   getApprovalPath,
 } from "@/lib/approvalPolicy";
 import { resolveRoleForBranch } from "@/lib/branchMembership";
+
+type CorrectionCharge = {
+  charge_id: number;
+  description: string;
+  amount: number;
+  job_number: string | null;
+};
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -25,13 +32,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ]);
     const id = Number(params.id);
     const body = await req.json().catch(() => ({}));
-    const description = body.description != null ? String(body.description).trim() : null;
-    const amount = body.amount != null ? Number(body.amount) : null;
+    const chargeInputs: CorrectionCharge[] | null = Array.isArray(body.charges)
+      ? body.charges.map((charge: any) => ({
+          charge_id: Number(charge?.charge_id),
+          description: String(charge?.description || "").trim(),
+          amount: Number(charge?.amount),
+          job_number:
+            charge?.job_number != null ? String(charge.job_number).trim() || null : null,
+        }))
+      : null;
+    const description = chargeInputs
+      ? chargeInputs.map((charge) => charge.description).join("\n")
+      : body.description != null
+        ? String(body.description).trim()
+        : null;
+    const amount = chargeInputs
+      ? chargeInputs.reduce((total, charge) => total + charge.amount, 0)
+      : body.amount != null
+        ? Number(body.amount)
+        : null;
     const note = body.note != null ? String(body.note).trim() : null;
     const branchIdInput = body.branch_id != null ? Number(body.branch_id) : null;
-    const jobNumbersInput = Array.isArray(body.job_numbers)
-      ? parseJobNumbers(body.job_numbers.map(String))
-      : null;
+    const jobNumbersInput = chargeInputs
+      ? parseJobNumbers(
+          chargeInputs
+            .map((charge) => charge.job_number)
+            .filter((jobNumber): jobNumber is string => Boolean(jobNumber))
+        )
+      : Array.isArray(body.job_numbers)
+        ? parseJobNumbers(body.job_numbers.map(String))
+        : null;
 
     const request = await queryOne<PettyCashRequest>("SELECT * FROM petty_cash_requests WHERE id = ?", [id]);
     if (!request) throw new ApiError(404, "Request not found");
@@ -45,16 +75,66 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       throw new ApiError(409, "Request is not awaiting correction.");
     }
 
+    const storedCharges = await query<{ id: number }>(
+      "SELECT id FROM request_charges WHERE request_id = ? ORDER BY sort_order, id",
+      [id]
+    );
+    if (chargeInputs) {
+      if (chargeInputs.length === 0) throw new ApiError(400, "At least one charge is required.");
+      if (
+        storedCharges.length > 0 &&
+        (chargeInputs.length !== storedCharges.length ||
+          storedCharges.some(
+            (stored) => !chargeInputs.some((charge) => charge.charge_id === stored.id)
+          ))
+      ) {
+        throw new ApiError(400, "The submitted charges do not match this request.");
+      }
+      for (const charge of chargeInputs) {
+        if (!charge.description) throw new ApiError(400, "Each charge needs a description.");
+        if (!(charge.amount > 0)) {
+          throw new ApiError(400, "Each charge amount must be greater than zero.");
+        }
+        if (request.charge_type === "job" && !charge.job_number) {
+          throw new ApiError(400, "Each charge needs a job number.");
+        }
+      }
+    }
+
     if (description !== null && !description) throw new ApiError(400, "Description cannot be empty.");
     if (amount != null && !(amount > 0)) throw new ApiError(400, "Amount must be greater than zero.");
 
     if (request.request_type === "exact") {
-      const row = await queryOne<{ c: number }>(
-        "SELECT COUNT(*) AS c FROM receipts WHERE request_id = ? AND receipt_type = 'request'",
+      const receiptRows = await query<{ charge_id: number | null }>(
+        "SELECT charge_id FROM receipts WHERE request_id = ? AND receipt_type = 'request'",
         [id]
       );
-      if (Number(row?.c || 0) === 0) {
+      if (receiptRows.length === 0) {
         throw new ApiError(422, "Upload at least one clear receipt before resubmitting.");
+      }
+      // Every charge needs its own receipt, same as when the request was created.
+      // Receipts saved before per-charge linking count towards the first charge.
+      if (storedCharges.length > 0) {
+        const linkedChargeIds = new Set(
+          receiptRows
+            .map((receipt) =>
+              receipt.charge_id ?? (storedCharges[0] ? storedCharges[0].id : null)
+            )
+            .filter((chargeId): chargeId is number => chargeId != null)
+        );
+        const missing = storedCharges
+          .map((charge, index) => ({ charge, index }))
+          .filter(({ charge }) => !linkedChargeIds.has(charge.id));
+        if (missing.length > 0) {
+          throw new ApiError(
+            422,
+            storedCharges.length > 1
+              ? `Upload a receipt for charge ${missing
+                  .map(({ index }) => index + 1)
+                  .join(", ")} before resubmitting.`
+              : "Upload at least one clear receipt before resubmitting."
+          );
+        }
       }
     }
 
@@ -121,27 +201,41 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ]
       );
 
+      if (chargeInputs && storedCharges.length > 0) {
+        for (const charge of chargeInputs) {
+          await conn.execute(
+            `UPDATE request_charges
+                SET description = ?, amount = ?, job_number = ?
+              WHERE id = ? AND request_id = ?`,
+            [
+              charge.description,
+              charge.amount,
+              request.charge_type === "job" ? charge.job_number : null,
+              charge.charge_id,
+              id,
+            ]
+          );
+        }
+      }
+
       if (request.charge_type === "job" && jobNumbersInput) {
         await replaceRequestJobNumbers(conn, id, jobNumbersInput);
 
-        // UI / getJobNumbers prefer request_charges.job_number — keep them in sync
-        // with the corrected jobs (header + junction alone leave the old charge value).
-        const [chargeRows] = await conn.query<any[]>(
-          `SELECT id FROM request_charges WHERE request_id = ? ORDER BY sort_order, id`,
-          [id]
-        );
-        if (chargeRows.length === 1 || jobNumbersInput.length === 1) {
-          await conn.execute(
-            `UPDATE request_charges SET job_number = ? WHERE request_id = ?`,
-            [jobNumbersInput[0], id]
-          );
-        } else {
-          for (let i = 0; i < chargeRows.length; i++) {
-            const job = jobNumbersInput[i] ?? jobNumbersInput[0];
-            await conn.execute(`UPDATE request_charges SET job_number = ? WHERE id = ?`, [
-              job,
-              chargeRows[i].id,
-            ]);
+        // Backward compatibility for old clients that do not send per-charge data.
+        if (!chargeInputs) {
+          if (storedCharges.length === 1 || jobNumbersInput.length === 1) {
+            await conn.execute(
+              `UPDATE request_charges SET job_number = ? WHERE request_id = ?`,
+              [jobNumbersInput[0], id]
+            );
+          } else {
+            for (let i = 0; i < storedCharges.length; i++) {
+              const job = jobNumbersInput[i] ?? jobNumbersInput[0];
+              await conn.execute(`UPDATE request_charges SET job_number = ? WHERE id = ?`, [
+                job,
+                storedCharges[i].id,
+              ]);
+            }
           }
         }
       }

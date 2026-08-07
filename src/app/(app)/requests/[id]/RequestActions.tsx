@@ -54,6 +54,7 @@ function sessionCanPayRequest(
 
 export type RequestReceipt = {
   id: number;
+  charge_id: number | null;
   file_name: string;
   mime_type: string | null;
   receipt_type: string;
@@ -200,8 +201,8 @@ export default function RequestActions({
         request={request}
         requestReceipts={requestReceipts}
         initialJobNumbers={initialJobNumbers}
+        charges={charges}
         post={post}
-        postForm={postForm}
         busy={busy}
       />
     );
@@ -925,44 +926,105 @@ function AccountsReturnPanel({
 }
 
 // ---------- Submitter: resubmit after correction ----------
+type CorrectionChargeDraft = {
+  charge_id: number;
+  description: string;
+  amount: string;
+  job_number: string;
+  files: File[];
+};
+
 function ResubmitPanel({
   request,
   requestReceipts,
   initialJobNumbers,
+  charges,
   post,
-  postForm,
   busy,
 }: {
   request: EnrichedRequest;
   requestReceipts: RequestReceipt[];
   initialJobNumbers: string[];
+  charges: RequestCharge[];
   post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
-  postForm: (p: string, fd: FormData) => Promise<boolean>;
   busy: boolean;
 }) {
-  const [description, setDescription] = useState(request.description || "");
-  const [amount, setAmount] = useState(String(request.requested_amount));
+  const initialCharges: CorrectionChargeDraft[] =
+    charges.length > 0
+      ? charges.map((charge, index) => ({
+          charge_id: charge.id,
+          description: charge.description || "",
+          amount: String(charge.amount),
+          job_number:
+            charge.job_number?.trim() || initialJobNumbers[index]?.trim() || "",
+          files: [],
+        }))
+      : [
+          {
+            charge_id: 0,
+            description: request.description || "",
+            amount: String(request.requested_amount),
+            job_number: initialJobNumbers[0]?.trim() || request.job_number?.trim() || "",
+            files: [],
+          },
+        ];
+  const [chargeDrafts, setChargeDrafts] =
+    useState<CorrectionChargeDraft[]>(initialCharges);
   const [note, setNote] = useState("");
   const [branches, setBranches] = useState<{ id: number; branch_name: string }[]>([]);
   const [branchId, setBranchId] = useState<number | "">(request.branch_id);
-  const [jobNumbers, setJobNumbers] = useState<string[]>(
-    initialJobNumbers.length > 0 ? initialJobNumbers : [""]
+  const [jobStatuses, setJobStatuses] = useState<Record<number, JobNumbersStatus>>(
+    Object.fromEntries(
+      initialCharges.map((charge) => [
+        charge.charge_id,
+        { valid: false },
+      ])
+    )
   );
-  const [jobStatus, setJobStatus] = useState<JobNumbersStatus>({ valid: initialJobNumbers.length > 0 });
   const [handlerInfo, setHandlerInfo] = useState<{ branchName?: string; handlers: { name: string }[] }>({
     handlers: [],
   });
-  const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removedIds, setRemovedIds] = useState<number[]>([]);
   const [receiptBusy, setReceiptBusy] = useState(false);
   const [receiptError, setReceiptError] = useState("");
   const router = useRouter();
 
   const visibleReceipts = requestReceipts.filter((r) => !removedIds.includes(r.id));
-  const hasReceiptForResubmit = visibleReceipts.length > 0 || newFiles.length > 0;
+  // Legacy receipts saved before per-charge linking belong to the first charge.
+  const receiptsForCharge = (chargeId: number, index: number) =>
+    visibleReceipts.filter(
+      (receipt) => receipt.charge_id === chargeId || (index === 0 && receipt.charge_id == null)
+    );
+  const chargesMissingReceipts = chargeDrafts
+    .map((charge, index) => ({ charge, index }))
+    .filter(
+      ({ charge, index }) =>
+        receiptsForCharge(charge.charge_id, index).length === 0 && charge.files.length === 0
+    );
   const isJob = request.charge_type === "job";
-  const filledJobNumbers = jobNumbers.map((j) => j.trim()).filter(Boolean);
-  const routingValid = isJob ? jobStatus.valid : Boolean(branchId);
+  const resolvedJobBranches = new Set(
+    Object.values(jobStatuses)
+      .map((status) => status.branch?.id)
+      .filter((branchId): branchId is number => branchId != null)
+  );
+  const routingValid = isJob
+    ? chargeDrafts.every((charge) => jobStatuses[charge.charge_id]?.valid) &&
+      resolvedJobBranches.size <= 1
+    : Boolean(branchId);
+  const chargesValid = chargeDrafts.every(
+    (charge) => charge.description.trim() && Number(charge.amount) > 0
+  );
+
+  function updateCharge(
+    chargeId: number,
+    patch: Partial<CorrectionChargeDraft>
+  ) {
+    setChargeDrafts((current) =>
+      current.map((charge) =>
+        charge.charge_id === chargeId ? { ...charge, ...patch } : charge
+      )
+    );
+  }
 
   useEffect(() => {
     fetch("/api/meta/form")
@@ -984,15 +1046,30 @@ function ResubmitPanel({
       });
   }, [branchId, isJob]);
 
-  async function uploadReceipts() {
-    if (newFiles.length === 0) return;
+  async function uploadChargeReceipts(charge: CorrectionChargeDraft): Promise<boolean> {
+    if (charge.files.length === 0) return true;
     setReceiptBusy(true);
     setReceiptError("");
     try {
       const fd = new FormData();
-      newFiles.forEach((f) => fd.append("receipts", f));
-      const ok = await postForm("correction-receipts", fd);
-      if (ok) setNewFiles([]);
+      if (charge.charge_id > 0) {
+        fd.set("charge_id", String(charge.charge_id));
+      }
+      charge.files.forEach((file) => fd.append("receipts", file));
+      const res = await fetch(`/api/requests/${request.id}/correction-receipts`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setReceiptError(data.error || "Could not upload receipts");
+        return false;
+      }
+      updateCharge(charge.charge_id, { files: [] });
+      return true;
+    } catch {
+      setReceiptError("Network error");
+      return false;
     } finally {
       setReceiptBusy(false);
     }
@@ -1038,69 +1115,137 @@ function ResubmitPanel({
           : "Update details and receipts if needed, then resubmit. It will go to your supervisor for approval, then back to accounts."}
       </p>
 
-      <div>
-        <p className="label">Current Receipts</p>
-        {visibleReceipts.length === 0 ? (
-          <p className="text-sm text-amber-700">
-            {isExact
-              ? "No receipt attached. Take a new photo below before resubmitting."
-              : "No receipts on file."}
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {visibleReceipts.map((rc) => (
-              <div key={rc.id} className="relative">
-                <button
-                  type="button"
-                  onClick={() => removeReceipt(rc.id)}
-                  disabled={actionBusy}
-                  className="absolute right-2 top-2 z-30 flex h-9 w-9 items-center justify-center border border-white/30 bg-black/55 text-white transition hover:bg-black/75 disabled:opacity-50"
-                  aria-label={`Remove ${rc.file_name}`}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path
-                      d="M18 6L6 18M6 6l12 12"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-                <ReceiptPreview
-                  id={rc.id}
-                  fileName={rc.file_name}
-                  mimeType={rc.mime_type}
+      <div className="space-y-4">
+        {chargeDrafts.map((charge, index) => {
+          const chargeReceipts = receiptsForCharge(charge.charge_id, index);
+          const receiptMissing =
+            isExact && chargeReceipts.length === 0 && charge.files.length === 0;
+          return (
+            <section
+              key={charge.charge_id}
+              className="space-y-3 border border-slate-200 bg-slate-50/60 p-4"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold text-slate-900">
+                  Charge {index + 1}
+                </p>
+                <span className="text-xs text-slate-500">
+                  {money(Number(charge.amount) || 0, request.currency)}
+                </span>
+              </div>
+
+              {isJob && (
+                <JobNumbersInput
+                  values={[charge.job_number]}
+                  allowMultiple={false}
+                  onChange={(values) =>
+                    updateCharge(charge.charge_id, { job_number: values[0] || "" })
+                  }
+                  onStatusChange={(status) =>
+                    setJobStatuses((current) => ({
+                      ...current,
+                      [charge.charge_id]: status,
+                    }))
+                  }
+                />
+              )}
+
+              <div>
+                <label className="label">Description</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={charge.description}
+                  onChange={(event) =>
+                    updateCharge(charge.charge_id, { description: event.target.value })
+                  }
                 />
               </div>
-            ))}
-          </div>
-        )}
-        {receiptError && (
-          <p className="mt-2 border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">{receiptError}</p>
-        )}
+
+              <div>
+                <label className="label">Amount</label>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={charge.amount}
+                  onChange={(event) =>
+                    updateCharge(charge.charge_id, { amount: event.target.value })
+                  }
+                />
+              </div>
+
+              <div>
+                <p className="label">Attachments</p>
+                {chargeReceipts.length === 0 ? (
+                  <p className={`text-sm ${receiptMissing ? "text-amber-700" : "text-slate-500"}`}>
+                    {receiptMissing
+                      ? "Receipt required — attach one for this charge before resubmitting."
+                      : "No attachments for this charge."}
+                  </p>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {chargeReceipts.map((receipt) => (
+                      <div key={receipt.id} className="relative">
+                        <button
+                          type="button"
+                          onClick={() => removeReceipt(receipt.id)}
+                          disabled={actionBusy}
+                          className="absolute right-2 top-2 z-30 flex h-9 w-9 items-center justify-center border border-white/30 bg-black/55 text-white transition hover:bg-black/75 disabled:opacity-50"
+                          aria-label={`Remove ${receipt.file_name}`}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <path
+                              d="M18 6L6 18M6 6l12 12"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </button>
+                        <ReceiptPreview
+                          id={receipt.id}
+                          fileName={receipt.file_name}
+                          mimeType={receipt.mime_type}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <ReceiptFileInput
+                id={`correction-receipt-upload-${charge.charge_id}`}
+                files={charge.files}
+                onChange={(files) => updateCharge(charge.charge_id, { files })}
+                capture="environment"
+                label="Add or replace attachments"
+              />
+              {charge.files.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-secondary w-full"
+                  disabled={actionBusy}
+                  onClick={() => uploadChargeReceipts(charge)}
+                >
+                  {receiptBusy
+                    ? "Uploading..."
+                    : `Upload ${charge.files.length} attachment${charge.files.length === 1 ? "" : "s"}`}
+                </button>
+              )}
+            </section>
+          );
+        })}
       </div>
 
-      <ReceiptFileInput
-        id="correction-receipt-upload"
-        files={newFiles}
-        onChange={setNewFiles}
-        capture="environment"
-        label={isExact ? "New Receipt (required before resubmit)" : "Add Receipts (optional)"}
-      />
-      {newFiles.length > 0 && (
-        <button
-          type="button"
-          className="btn-secondary w-full"
-          disabled={actionBusy}
-          onClick={uploadReceipts}
-        >
-          {receiptBusy ? "Uploading..." : `Upload ${newFiles.length} receipt${newFiles.length === 1 ? "" : "s"}`}
-        </button>
+      {receiptError && (
+        <p className="border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {receiptError}
+        </p>
       )}
 
-      {isJob ? (
-        <JobNumbersInput values={jobNumbers} onChange={setJobNumbers} onStatusChange={setJobStatus} />
-      ) : (
+      {!isJob && (
         <div>
           <label className="label">Branch</label>
           <select
@@ -1123,22 +1268,6 @@ function ResubmitPanel({
           )}
         </div>
       )}
-
-      <div>
-        <label className="label">Description</label>
-        <textarea className="input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-      </div>
-      <div>
-        <label className="label">Amount</label>
-        <input
-          className="input"
-          type="number"
-          step="0.01"
-          min="0"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-      </div>
       <div>
         <label className="label">Note (optional)</label>
         <input
@@ -1152,33 +1281,25 @@ function ResubmitPanel({
         className="btn-primary"
         disabled={
           actionBusy ||
-          !description.trim() ||
-          !(Number(amount) > 0) ||
+          !chargesValid ||
           !routingValid ||
-          (isExact && !hasReceiptForResubmit)
+          (isExact && chargesMissingReceipts.length > 0)
         }
         onClick={async () => {
-          if (newFiles.length > 0) {
-            setReceiptBusy(true);
-            const fd = new FormData();
-            newFiles.forEach((f) => fd.append("receipts", f));
-            const res = await fetch(`/api/requests/${request.id}/correction-receipts`, {
-              method: "POST",
-              body: fd,
-            });
-            const d = await res.json();
-            setReceiptBusy(false);
-            if (!d.ok) {
-              setReceiptError(d.error || "Could not upload receipts");
+          for (const charge of chargeDrafts) {
+            if (charge.files.length > 0 && !(await uploadChargeReceipts(charge))) {
               return;
             }
-            setNewFiles([]);
           }
           await post("resubmit", {
-            description: description.trim(),
-            amount: Number(amount),
+            charges: chargeDrafts.map((charge) => ({
+              charge_id: charge.charge_id,
+              description: charge.description.trim(),
+              amount: Number(charge.amount),
+              job_number: isJob ? charge.job_number.trim() : null,
+            })),
             note: note.trim() || undefined,
-            ...(isJob ? { job_numbers: filledJobNumbers } : { branch_id: branchId }),
+            ...(!isJob ? { branch_id: branchId } : {}),
           });
         }}
       >
@@ -1187,12 +1308,21 @@ function ResubmitPanel({
           ? " for Payment"
           : " for Supervisor Approval"}
       </button>
-      {isExact && !hasReceiptForResubmit && (
-        <p className="text-xs text-amber-700">Attach a new receipt before you can resubmit.</p>
+      {isExact && chargesMissingReceipts.length > 0 && (
+        <p className="text-xs text-amber-700">
+          {chargeDrafts.length > 1
+            ? `Attach a receipt for charge ${chargesMissingReceipts
+                .map(({ index }) => index + 1)
+                .join(", ")} before you can resubmit.`
+            : "Attach a receipt before you can resubmit."}
+        </p>
       )}
       {!routingValid && (
         <p className="text-xs text-amber-700">
-          {isJob ? jobStatus.error || "Fix job number routing before resubmitting." : "Select a branch."}
+          {isJob
+            ? Object.values(jobStatuses).find((status) => status.error)?.error ||
+              "Fix each job number before resubmitting."
+            : "Select a branch."}
         </p>
       )}
     </div>

@@ -41,15 +41,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await assertSubmitterCorrectionAccess(session, request);
 
     const form = await req.formData();
+    const chargeId = Number(form.get("charge_id")) || null;
     const files = form.getAll("receipts").filter((f): f is File => f instanceof File && f.size > 0);
     if (files.length === 0) throw new ApiError(400, "Select at least one receipt to upload.");
+    if (chargeId) {
+      const charge = await queryOne<{ id: number }>(
+        "SELECT id FROM request_charges WHERE id = ? AND request_id = ?",
+        [chargeId, id]
+      );
+      if (!charge) throw new ApiError(400, "Selected charge is invalid.");
+    }
 
     await withTransaction(async (conn) => {
       const saved = await saveReceiptFiles(files);
       await conn.execute(
-        `INSERT INTO receipts (request_id, file_url, file_name, mime_type, uploaded_by_user_id, receipt_type)
-         VALUES (?,?,?,?,?, 'request')`,
-        [id, saved.relPath, saved.originalName, saved.mimeType, session.id]
+        `INSERT INTO receipts
+           (request_id, charge_id, file_url, file_name, mime_type, uploaded_by_user_id, receipt_type)
+         VALUES (?,?,?,?,?,?, 'request')`,
+        [id, chargeId, saved.relPath, saved.originalName, saved.mimeType, session.id]
       );
 
       await auditTx(conn, {
@@ -57,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         action: "correction_receipt_upload",
         entityType: "petty_cash_request",
         entityId: id,
-        newValue: { pages: files.length },
+        newValue: { pages: files.length, charge_id: chargeId },
       });
     });
 
