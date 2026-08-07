@@ -42,6 +42,8 @@ const TABS = [
   { key: "returned", label: "Returned Cash" },
   { key: "partial_returns", label: "Partial Returns" },
   { key: "acc_sup_pending", label: "Acc Sup Pending", highlight: "blue" as const },
+  { key: "returned_correction", label: "Returned for Correction" },
+  { key: "rejected", label: "Rejected" },
   { key: "balance", label: "Branch Cash Balance" },
 ] as const;
 
@@ -67,8 +69,17 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
       ? [...branchParams, ...ACCOUNTS_PENDING_STATUSES]
       : [...branchParams, ...ACCOUNTS_PENDING_STATUSES, EXACT_STATUS.PENDING_ACC_SUP];
 
-  const [pending, paidToday, openSusp, settlement, returned, partialReturns, accSupPending] =
-    await Promise.all([
+  const [
+    pending,
+    paidToday,
+    openSusp,
+    settlement,
+    returned,
+    partialReturns,
+    accSupPending,
+    returnedCorrection,
+    rejected,
+  ] = await Promise.all([
       tabCount(`SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${pendingWhere}`, pendingParams),
       tabCount(
         `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND DATE(paid_at) = CURDATE()`,
@@ -99,6 +110,14 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
         `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status = ?`,
         [...branchParams, EXACT_STATUS.PENDING_ACC_SUP]
       ),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (?, ?)`,
+        [...branchParams, EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED]
+      ),
+      tabCount(
+        `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (?, ?)`,
+        [...branchParams, EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED]
+      ),
     ]);
 
   return {
@@ -109,6 +128,8 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
     returned,
     partial_returns: partialReturns,
     acc_sup_pending: accSupPending,
+    returned_correction: returnedCorrection,
+    rejected,
   };
 }
 
@@ -222,6 +243,14 @@ export default async function AccountsPage({
     } else if (tab === "acc_sup_pending") {
       whereParts.push(`r.branch_id IN (${phScope})`, `r.status = ?`);
       params.push(...scopeIds, EXACT_STATUS.PENDING_ACC_SUP);
+    } else if (tab === "returned_correction") {
+      whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (?, ?)`);
+      params.push(...scopeIds, EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED);
+      order = "r.updated_at DESC";
+    } else if (tab === "rejected") {
+      whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (?, ?)`);
+      params.push(...scopeIds, EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED);
+      order = "r.updated_at DESC";
     }
 
     if (typeParam) {
@@ -345,7 +374,11 @@ export default async function AccountsPage({
                 ? "No requests match your search or filters."
                 : tab === "acc_sup_pending"
                   ? "No requests waiting on Accounts Supervisor."
-                  : "Nothing here right now."
+                  : tab === "returned_correction"
+                    ? "No requests currently returned for correction."
+                    : tab === "rejected"
+                      ? "No rejected requests."
+                      : "Nothing here right now."
             }
             usePaidAmount={tab === "paid_today"}
             useReturnedAmount={tab === "returned" || tab === "partial_returns"}
