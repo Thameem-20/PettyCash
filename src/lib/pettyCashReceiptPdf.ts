@@ -33,6 +33,11 @@ export interface CashReceiptConfirmation {
   note?: string | null;
 }
 
+export interface AccSupReceiptApproval {
+  name: string;
+  date: string;
+}
+
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
@@ -381,7 +386,8 @@ export async function generatePettyCashPaymentReceiptPdf(
   jobNumbers: string[],
   messengerReceipts: StoredReceipt[],
   cashConfirmed: CashReceiptConfirmation | null,
-  charges: { description: string; amount: number; job_number?: string | null }[] = []
+  charges: { description: string; amount: number; job_number?: string | null }[] = [],
+  accSupApproved: AccSupReceiptApproval | null = null
 ): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -449,7 +455,50 @@ export async function generatePettyCashPaymentReceiptPdf(
     y = drawField(page, font, fontBold, y, "Approved Amount", money(request.approved_amount, request.currency));
   }
   y = drawField(page, font, fontBold, y, "Paid Amount", paidAmount);
+
+  // Suspense settlement figures — advance is only complete with expense/returns.
+  if (request.request_type === "suspense") {
+    const paid = Number(request.paid_amount || 0);
+    const expense = Number(request.actual_expense_amount || 0);
+    const returned = Number(request.returned_amount || 0);
+    const additional = Number(request.additional_paid_amount || 0);
+
+    if (request.actual_expense_amount != null) {
+      y = drawField(
+        page,
+        font,
+        fontBold,
+        y,
+        "Actual Expense",
+        money(request.actual_expense_amount, request.currency)
+      );
+    }
+    y = drawField(page, font, fontBold, y, "Returned Amount", money(returned, request.currency));
+    if (additional > 0) {
+      y = drawField(
+        page,
+        font,
+        fontBold,
+        y,
+        "Additional Paid",
+        money(additional, request.currency)
+      );
+    }
+    const outstanding = Math.max(0, Math.round((paid + additional - returned - expense) * 100) / 100);
+    y = drawField(page, font, fontBold, y, "Outstanding", money(outstanding, request.currency));
+  }
+
   y = drawField(page, font, fontBold, y, "Paid By", paidBy);
+  if (accSupApproved) {
+    y = drawField(
+      page,
+      font,
+      fontBold,
+      y,
+      "Approved By",
+      `${accSupApproved.name} (${formatDate(accSupApproved.date)})`
+    );
+  }
   y = drawField(
     page,
     font,

@@ -26,7 +26,15 @@ async function assertSubmitterCorrectionAccess(
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireApiSession(["cash_requester", "operations", "supervisor", "admin"]);
+    const session = await requireApiSession([
+      "cash_requester",
+      "messenger",
+      "operations",
+      "supervisor",
+      "accounts",
+      "accounts_supervisor",
+      "admin",
+    ]);
     const id = Number(params.id);
     const request = await queryOne<PettyCashRequest>("SELECT * FROM petty_cash_requests WHERE id = ?", [id]);
     if (!request) throw new ApiError(404, "Request not found");

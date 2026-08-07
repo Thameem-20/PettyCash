@@ -17,7 +17,15 @@ export async function DELETE(
   { params }: { params: { id: string; receiptId: string } }
 ) {
   try {
-    const session = await requireApiSession(["cash_requester", "operations", "supervisor", "admin"]);
+    const session = await requireApiSession([
+      "cash_requester",
+      "messenger",
+      "operations",
+      "supervisor",
+      "accounts",
+      "accounts_supervisor",
+      "admin",
+    ]);
     const id = Number(params.id);
     const receiptId = Number(params.receiptId);
 

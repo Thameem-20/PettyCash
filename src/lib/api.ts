@@ -54,6 +54,13 @@ export function fail(err: unknown) {
       { status: 422 }
     );
   }
+  // Upload validation is a client problem, not a server crash.
+  if (message.startsWith("File too large")) {
+    return NextResponse.json({ ok: false, error: message }, { status: 413 });
+  }
+  if (message.startsWith("Unsupported file type")) {
+    return NextResponse.json({ ok: false, error: message }, { status: 415 });
+  }
   console.error(err);
   return NextResponse.json({ ok: false, error: message }, { status: 500 });
 }

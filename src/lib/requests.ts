@@ -573,6 +573,21 @@ export async function getCashReceiptConfirmation(requestId: number) {
   );
 }
 
+/** Latest Accounts Supervisor approval before payment (escalate → approve, or Acc Sup approve & pay). */
+export async function getAccSupPaymentApproval(requestId: number) {
+  return queryOne<{ approver_name: string; created_at: string; action: string }>(
+    `SELECT u.name AS approver_name, a.created_at, a.action
+       FROM approvals a
+       JOIN users u ON u.id = a.approver_user_id
+      WHERE a.request_id = ?
+        AND a.approval_level = 'accounts_supervisor'
+        AND a.action IN ('approve_for_payment', 'approve_pay')
+      ORDER BY a.created_at DESC
+      LIMIT 1`,
+    [requestId]
+  );
+}
+
 /** Extract optional receiver note from confirm_receipt approval comments. */
 export function parseConfirmReceiptNote(comments: string | null | undefined): string | null {
   if (!comments) return null;

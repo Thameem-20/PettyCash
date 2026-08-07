@@ -1054,7 +1054,7 @@ function ResubmitPanel({
                   type="button"
                   onClick={() => removeReceipt(rc.id)}
                   disabled={actionBusy}
-                  className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center border border-white/30 bg-black/55 text-white transition hover:bg-black/75 disabled:opacity-50"
+                  className="absolute right-2 top-2 z-30 flex h-9 w-9 items-center justify-center border border-white/30 bg-black/55 text-white transition hover:bg-black/75 disabled:opacity-50"
                   aria-label={`Remove ${rc.file_name}`}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>

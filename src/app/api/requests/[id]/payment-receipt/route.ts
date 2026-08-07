@@ -3,6 +3,7 @@ import { ApiError, fail, requireApiSession } from "@/lib/api";
 import {
   accountsCanHandle,
   canViewRequest,
+  getAccSupPaymentApproval,
   getCashReceiptConfirmation,
   getJobNumbers,
   getReceipts,
@@ -38,11 +39,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    const [jobNumbers, receipts, cashConfirmed, charges] = await Promise.all([
+    const [jobNumbers, receipts, cashConfirmed, charges, accSupApproved] = await Promise.all([
       getJobNumbers(id),
       getReceipts(id),
       getCashReceiptConfirmation(id),
       getRequestCharges(id),
+      getAccSupPaymentApproval(id),
     ]);
     const messengerReceipts = receipts.filter((r) => r.receipt_type === "request");
 
@@ -57,7 +59,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             note: parseConfirmReceiptNote(cashConfirmed.comments),
           }
         : null,
-      charges
+      charges,
+      accSupApproved
+        ? { name: accSupApproved.approver_name, date: accSupApproved.created_at }
+        : null
     );
     const zyboCode = request.zybo_voucher_code?.trim();
     const safeZybo = zyboCode ? zyboCode.replace(/[^a-zA-Z0-9-_]/g, "") : "";
