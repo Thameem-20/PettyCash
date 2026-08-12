@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/session";
 import { navForRole, ROLE_LABELS } from "@/lib/rbac";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
+import MobileSidebarDrawer from "@/components/MobileSidebarDrawer";
 import MainContent from "@/components/MainContent";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import RefreshButton from "@/components/RefreshButton";
@@ -109,6 +110,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   };
 
   const switcher = <WorkspaceSwitcher {...switcherProps} />;
+  const showMobileSidebar =
+    navRole === "accounts" ||
+    navRole === "accounts_supervisor" ||
+    navRole === "admin";
 
   return (
     <div className="min-h-screen md:flex">
@@ -138,9 +143,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar */}
         <header className="sticky top-0 z-30 flex items-center justify-between gap-2 bg-gradient-to-br from-brand-600 to-brand-700 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:hidden">
-          <Link href="/dashboard" className="shrink-0 text-sm font-bold text-white">
-            Petty Cash
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            {showMobileSidebar && (
+              <MobileSidebarDrawer
+                items={nav}
+                badges={accountsBadges ?? undefined}
+                fieldStaffBadges={mobileBadges}
+                roleLabel={ROLE_LABELS[session.role]}
+                userName={session.name}
+                userEmail={session.email}
+              />
+            )}
+            <Link href="/dashboard" className="shrink-0 text-sm font-bold text-white">
+              Petty Cash
+            </Link>
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             <RefreshButton tone="dark" />
             <WorkspaceSwitcher {...switcherProps} tone="dark" />

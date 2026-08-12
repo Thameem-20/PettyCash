@@ -30,15 +30,29 @@ import { CLOSED_STATUSES, EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { codingType, getBranchProfile } from "@/lib/branchProfile";
 import { listSuspenseReturns } from "@/lib/suspenseReturns";
 import { canAccSupAmend } from "@/lib/accSupAmend";
+import {
+  isRoleSupervisorReceiver,
+  syncRoleSupervisorCashReceiverStandalone,
+} from "@/lib/supervisorCashReceiver";
 import RequestEditButton from "./RequestEditButton";
 
 export const dynamic = "force-dynamic";
 
 export default async function RequestDetailPage({ params }: { params: { id: string } }) {
   const session = await requireSession();
-  const req = await getRequestById(Number(params.id));
+  let req = await getRequestById(Number(params.id));
   if (!req) notFound();
   if (!(await canViewRequest(session, req))) redirect("/dashboard");
+
+  // Role-based supervisor receiver: point confirm at current personal/default supervisor.
+  if (
+    isRoleSupervisorReceiver(req.cash_receiver_label) &&
+    (req.status === EXACT_STATUS.AWAITING_RECEIVER ||
+      req.status === SUSPENSE_STATUS.AWAITING_CASH_RECEIPT)
+  ) {
+    await syncRoleSupervisorCashReceiverStandalone(req);
+    req = (await getRequestById(req.id)) || req;
+  }
 
   const receipts = await getReceipts(req.id);
   const jobNumbers = await getJobNumbers(req.id);

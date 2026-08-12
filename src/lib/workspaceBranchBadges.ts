@@ -86,7 +86,6 @@ async function countAccSupApprovalsByBranch(
 }
 
 async function countSupervisorApprovalsByBranch(
-  userId: number,
   branchIds: number[]
 ): Promise<Record<number, number>> {
   const { approvals } = emptyMaps(branchIds);
@@ -95,16 +94,10 @@ async function countSupervisorApprovalsByBranch(
   const rows = await query<{ branch_id: number; c: number }>(
     `SELECT branch_id, COUNT(*) AS c
        FROM petty_cash_requests
-      WHERE supervisor_id = ?
-        AND status IN (?, ?)
+      WHERE status IN (?, ?)
         AND branch_id IN (${phBranch})
       GROUP BY branch_id`,
-    [
-      userId,
-      EXACT_STATUS.PENDING_SUPERVISOR,
-      SUSPENSE_STATUS.PENDING_SUPERVISOR,
-      ...branchIds,
-    ]
+    [EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR, ...branchIds]
   );
   for (const row of rows) approvals[Number(row.branch_id)] = Number(row.c);
   return approvals;
@@ -127,7 +120,7 @@ export async function getWorkspaceBranchBadges(
     role === "admin";
 
   if (isSupervisor && !isAccSup && !isAccounts) {
-    const approvals = await countSupervisorApprovalsByBranch(session.id, branchIds);
+    const approvals = await countSupervisorApprovalsByBranch(branchIds);
     return toBadgeMap(branchIds, approvals, {}, { showApprovals: true, showPayments: false });
   }
 

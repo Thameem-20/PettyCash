@@ -92,7 +92,6 @@ export default function NewRequestForm({
   const router = useRouter();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [receivers, setReceivers] = useState<Receiver[]>([]);
-  const [supervisors, setSupervisors] = useState<Receiver[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
   const [defaultBranchId, setDefaultBranchId] = useState<number | null>(null);
@@ -225,7 +224,6 @@ export default function NewRequestForm({
         if (cancelled || !d.ok) return;
         setBranches(d.branches);
         setReceivers(d.receivers);
-        setSupervisors(d.supervisors || []);
         setDefaultBranchId(d.defaultBranchId);
         if (d.defaultBranchId) setBranchId(d.defaultBranchId);
         setAllowSuspense(d.allowSuspense !== false);
@@ -421,8 +419,6 @@ export default function NewRequestForm({
       !receiverLabel.trim()
     )
       return "Select or name the cash receiver";
-    if (!isCashRequester && !isCompassion && receiverType === "supervisor" && !receiverUserId)
-      return "Select a supervisor as cash receiver";
     return null;
   }
 
@@ -448,9 +444,9 @@ export default function NewRequestForm({
       fd.set("charge_type", submitChargeType);
       if (isCompassion || submitChargeType === "non_job") fd.set("branch_id", String(branchId));
       fd.set("cash_receiver_type", isCashRequester || isStaff || isCompassion ? "myself" : receiverType);
-      if (receiverUserId) fd.set("cash_receiver_user_id", String(receiverUserId));
-      if (receiverType === "messenger" && receiverLabel.trim()) {
-        fd.set("cash_receiver_label", receiverLabel.trim());
+      if (receiverType === "messenger") {
+        if (receiverUserId) fd.set("cash_receiver_user_id", String(receiverUserId));
+        if (receiverLabel.trim()) fd.set("cash_receiver_label", receiverLabel.trim());
       }
 
       if (fuelActive) {
@@ -828,18 +824,9 @@ export default function NewRequestForm({
             </div>
           )}
           {receiverType === "supervisor" && cashReceiverOptions.supervisor && (
-            <select
-              className="input"
-              value={receiverUserId}
-              onChange={(e) => setReceiverUserId(Number(e.target.value) || "")}
-            >
-              <option value="">Select supervisor</option>
-              {supervisors.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <p className="border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+              Cash receipt confirmation will go to the assigned supervisor.
+            </p>
           )}
         </div>
       )}

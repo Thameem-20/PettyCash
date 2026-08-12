@@ -6,6 +6,7 @@ import RefreshButton from "@/components/RefreshButton";
 import Pagination from "@/components/Pagination";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { PAGE_SIZE, pageMeta, pageOffset, parsePage } from "@/lib/pagination";
+import { syncAwaitingRoleSupervisorReceivers } from "@/lib/supervisorCashReceiver";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function ConfirmPage({
     "accounts_supervisor",
     "admin",
   ]);
+  await syncAwaitingRoleSupervisorReceivers();
   const where = "r.cash_receiver_user_id = ? AND r.status IN (?, ?)";
   const params = [session.id, EXACT_STATUS.AWAITING_RECEIVER, SUSPENSE_STATUS.AWAITING_CASH_RECEIPT];
   const total = await countRequestsWhere(where, params);

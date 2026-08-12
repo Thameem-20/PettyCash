@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { EnrichedRequest } from "@/lib/requests";
 import { money, formatDate } from "@/lib/util";
+import { formatCashReceiverDisplay } from "@/lib/supervisorCashReceiverShared";
 import StatusBadge from "./StatusBadge";
 import { EmptyState } from "./page-chrome";
 import ClickableTableRow from "./ClickableTableRow";
@@ -126,7 +127,7 @@ export default function RequestTable({
                 <td className="td">
                   <span className="block">{r.submitted_by_name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {r.receiver_name || r.cash_receiver_label || "-"}
+                    {formatCashReceiverDisplay(r.receiver_name, r.cash_receiver_label)}
                   </span>
                 </td>
                 <td className="td text-right font-medium">{displayAmount(r)}</td>

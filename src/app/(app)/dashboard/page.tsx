@@ -17,6 +17,7 @@ import { money } from "@/lib/util";
 import {
   ACCOUNTS_PENDING_STATUSES,
   EXACT_STATUS,
+  ISSUED_SUSPENSE_STATUSES,
   OPEN_SUSPENSE_STATUSES,
   SUSPENSE_STATUS,
 } from "@/lib/status";
@@ -289,8 +290,8 @@ async function BranchAccountsDashboard({
       [...branchParams, ...pendingStatuses]
     ),
     countWhere(
-      `${branchSql} AND status IN (${OPEN_SUSPENSE_STATUSES.map(() => "?").join(",")})`,
-      [...branchParams, ...OPEN_SUSPENSE_STATUSES]
+      `${branchSql} AND status IN (${ISSUED_SUSPENSE_STATUSES.map(() => "?").join(",")})`,
+      [...branchParams, ...ISSUED_SUSPENSE_STATUSES]
     ),
     countWhere(`${branchSql} AND DATE(paid_at) = CURDATE()`, branchParams),
     countPendingZyboVouchers(scopeIds),

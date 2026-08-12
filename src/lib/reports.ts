@@ -1,6 +1,6 @@
 import { query } from "./db";
 import { getBranchProfile, isCompassionMode } from "./branchProfile";
-import { OPEN_SUSPENSE_STATUSES, SUSPENSE_STATUS } from "./status";
+import { ISSUED_SUSPENSE_STATUSES, SUSPENSE_STATUS } from "./status";
 import type { ReportDatePeriod } from "./reportDateRange";
 import { reportDateClause, reportMessengerClause, type ReportFiltersInput } from "./reportPeriodSql";
 export { REPORT_TYPES } from "./reportTypes";
@@ -119,7 +119,11 @@ const REQUEST_LIST_RECEIVER_JOIN = `
   LEFT JOIN users ru ON ru.id = r.cash_receiver_user_id
 `;
 
-const REQUEST_LIST_PAID_TO = `COALESCE(ru.name, r.cash_receiver_label, u.name) AS paid_to`;
+const REQUEST_LIST_PAID_TO = `CASE
+    WHEN r.cash_receiver_label = '__role:supervisor__' THEN
+      CONCAT('Supervisor', IF(ru.name IS NULL OR TRIM(ru.name) = '', '', CONCAT(' (', ru.name, ')')))
+    ELSE COALESCE(ru.name, r.cash_receiver_label, u.name)
+  END AS paid_to`;
 
 const REQUEST_RECEIPT_FIELDS = `
   r.id AS request_id,
@@ -250,7 +254,7 @@ async function runRequestListReport(f: Filters): Promise<ReportResult> {
 
   const openSuspParams: unknown[] = [];
   const openSuspFilters = requestReportFilters("r.paid_at", f, openSuspParams);
-  const openPh = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
+  const openPh = ISSUED_SUSPENSE_STATUSES.map(() => "?").join(",");
 
   const openSuspenseRows = await query(
     `SELECT ${REQUEST_RECEIPT_FIELDS}, ${codingSelect}, r.request_no, ${REQUEST_DESCRIPTION}, ${REQUEST_JOB_NUMBER}${extraSelect}, b.branch_name, u.name AS submitted_by,
@@ -264,7 +268,7 @@ async function runRequestListReport(f: Filters): Promise<ReportResult> {
         AND r.paid_amount IS NOT NULL
         AND r.status IN (${openPh}) ${openSuspFilters}
       ORDER BY r.paid_at DESC, r.id DESC`,
-    [...OPEN_SUSPENSE_STATUSES, ...openSuspParams]
+    [...ISSUED_SUSPENSE_STATUSES, ...openSuspParams]
   );
 
   return {
@@ -431,8 +435,8 @@ export async function runReport(type: string, f: Filters): Promise<ReportResult>
       const compassion = await isCompassionBranchFilter(f.branchId);
       const extraSelect = compassion ? `, ${REQUEST_COMPASSION_FIELDS}` : "";
       const p: unknown[] = [];
-      const ph = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
-      p.push(...OPEN_SUSPENSE_STATUSES);
+      const ph = ISSUED_SUSPENSE_STATUSES.map(() => "?").join(",");
+      p.push(...ISSUED_SUSPENSE_STATUSES);
       const overdue = type === "overdue_suspense" ? " AND r.paid_at < (NOW() - INTERVAL 7 DAY)" : "";
       const branchFilter = f.branchId ? " AND r.branch_id = ?" : "";
       if (f.branchId) p.push(f.branchId);

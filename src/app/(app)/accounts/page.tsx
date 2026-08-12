@@ -22,6 +22,7 @@ import AccountsQueueFilters from "@/components/AccountsQueueFilters";
 import { money, formatDate } from "@/lib/util";
 import {
   ACCOUNTS_PENDING_STATUSES,
+  ISSUED_SUSPENSE_STATUSES,
   OPEN_SUSPENSE_STATUSES,
   SUSPENSE_STATUS,
   EXACT_STATUS,
@@ -55,7 +56,8 @@ async function tabCount(sql: string, params: unknown[]): Promise<number> {
 async function getAccountsTabCounts(branchIds: number[], role: string) {
   const { sql: branchSql, params: branchParams } = branchIdInSql(branchIds);
   const phPending = ACCOUNTS_PENDING_STATUSES.map(() => "?").join(",");
-  const phSusp = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
+  const phSusp = ISSUED_SUSPENSE_STATUSES.map(() => "?").join(",");
+  const phOpenSusp = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
 
   const pendingWhere =
     role === "accounts"
@@ -87,7 +89,7 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
       ),
       tabCount(
         `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (${phSusp})`,
-        [...branchParams, ...OPEN_SUSPENSE_STATUSES]
+        [...branchParams, ...ISSUED_SUSPENSE_STATUSES]
       ),
       tabCount(
         `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${branchSql} AND status IN (?, ?)`,
@@ -101,7 +103,7 @@ async function getAccountsTabCounts(branchIds: number[], role: string) {
       tabCount(
         `SELECT COUNT(*) AS c FROM petty_cash_requests
           WHERE ${branchSql}
-            AND status IN (${phSusp})
+            AND status IN (${phOpenSusp})
             AND returned_amount IS NOT NULL AND returned_amount > 0
             AND EXISTS (SELECT 1 FROM suspense_returns sr WHERE sr.request_id = petty_cash_requests.id)`,
         [...branchParams, ...OPEN_SUSPENSE_STATUSES]
@@ -217,9 +219,9 @@ export default async function AccountsPage({
       params.push(...scopeIds);
       order = "r.paid_at DESC";
     } else if (tab === "open_suspense") {
-      const phStat = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
+      const phStat = ISSUED_SUSPENSE_STATUSES.map(() => "?").join(",");
       whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (${phStat})`);
-      params.push(...scopeIds, ...OPEN_SUSPENSE_STATUSES);
+      params.push(...scopeIds, ...ISSUED_SUSPENSE_STATUSES);
     } else if (tab === "settlement_pending") {
       whereParts.push(`r.branch_id IN (${phScope})`, `r.status IN (?, ?)`);
       params.push(...scopeIds, SUSPENSE_STATUS.RECEIPT_SUBMITTED, SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW);

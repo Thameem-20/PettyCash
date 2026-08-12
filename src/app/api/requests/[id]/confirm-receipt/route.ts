@@ -5,6 +5,11 @@ import { PettyCashRequest } from "@/lib/types";
 import { auditTx } from "@/lib/audit";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { isElevated } from "@/lib/rbac";
+import {
+  isRoleSupervisorReceiver,
+  resolveSupervisorCashReceiverUserId,
+  syncRoleSupervisorCashReceiver,
+} from "@/lib/supervisorCashReceiver";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -21,13 +26,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const request = await queryOne<PettyCashRequest>("SELECT * FROM petty_cash_requests WHERE id = ?", [id]);
     if (!request) throw new ApiError(404, "Request not found");
 
+    let roleSupervisorId: number | null = null;
+    if (isRoleSupervisorReceiver(request.cash_receiver_label)) {
+      roleSupervisorId = await resolveSupervisorCashReceiverUserId(
+        request.submitted_by_user_id,
+        request.branch_id
+      );
+    }
+
     const isReceiver =
-      request.cash_receiver_user_id === session.id || request.submitted_by_user_id === session.id;
+      request.cash_receiver_user_id === session.id ||
+      request.submitted_by_user_id === session.id ||
+      (roleSupervisorId != null && roleSupervisorId === session.id);
     if (!isReceiver && !isElevated(session.role)) {
       throw new ApiError(403, "Only the cash receiver can confirm receipt.");
     }
 
     await withTransaction(async (conn) => {
+      if (isRoleSupervisorReceiver(request.cash_receiver_label)) {
+        await syncRoleSupervisorCashReceiver(conn, request);
+      }
+
       let newStatus: string;
       if (request.request_type === "exact") {
         if (request.status !== EXACT_STATUS.AWAITING_RECEIVER)

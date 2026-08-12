@@ -111,47 +111,35 @@ export async function supervisorApprovalBreakdown(
       .filter(Boolean) as ChartPoint[];
   }
 
-  const approvedSql = `EXISTS (
-    SELECT 1 FROM approvals a
-     WHERE a.request_id = petty_cash_requests.id
-       AND a.approver_user_id = ?
-       AND a.approval_level = 'supervisor'
-       AND a.action IN ('approve', 'edit_amount')
-  )`;
-  const rejectedSql = `EXISTS (
-    SELECT 1 FROM approvals a
-     WHERE a.request_id = petty_cash_requests.id
-       AND a.approver_user_id = ?
-       AND a.approval_level = 'supervisor'
-       AND a.action = 'reject'
-  )`;
-  const returnedSql = `EXISTS (
-    SELECT 1 FROM approvals a
-     WHERE a.request_id = petty_cash_requests.id
-       AND a.approver_user_id = ?
-       AND a.approval_level = 'supervisor'
-       AND a.action = 'return'
-  )`;
+  // Branch-scoped counts so a returning default supervisor sees cover history.
+  const scoped =
+    branchIds && branchIds.length > 0
+      ? `branch_id IN (${branchIds.map(() => "?").join(",")})`
+      : "supervisor_id = ?";
+  const scopedParams = branchIds && branchIds.length > 0 ? [...branchIds] : [userId];
 
   const [pending, approved, returned, rejected] = await Promise.all([
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE supervisor_id = ? AND status = 'Pending Supervisor Approval'${branchFilter}`,
-      [userId, ...branchParams]
-    ),
-    queryOne<{ c: number }>(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${approvedSql}${branchFilter}`,
-      [userId, ...branchParams]
+        WHERE ${scoped} AND status = 'Pending Supervisor Approval'`,
+      scopedParams
     ),
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE status = 'Returned for Correction' AND ${returnedSql}${branchFilter}`,
-      [userId, ...branchParams]
+        WHERE ${scoped}
+          AND approved_at IS NOT NULL
+          AND status NOT IN ('Pending Supervisor Approval', 'Rejected')`,
+      scopedParams
     ),
     queryOne<{ c: number }>(
       `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE status = 'Rejected' AND ${rejectedSql}${branchFilter}`,
-      [userId, ...branchParams]
+        WHERE ${scoped} AND status = 'Returned for Correction'`,
+      scopedParams
+    ),
+    queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM petty_cash_requests
+        WHERE ${scoped} AND status = 'Rejected'`,
+      scopedParams
     ),
   ]);
 

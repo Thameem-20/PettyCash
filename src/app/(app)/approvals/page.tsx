@@ -7,10 +7,6 @@ import Pagination from "@/components/Pagination";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import { PAGE_SIZE, pageMeta, pageOffset, parsePage } from "@/lib/pagination";
 import {
-  supervisorActionExistsSql,
-  supervisorApprovedExistsSql,
-} from "@/lib/supervisorScope";
-import {
   resolveBranchScope,
   branchScopeLabel,
   scopeIdsFrom,
@@ -54,6 +50,8 @@ export default async function ApprovalsPage({
     ? branchIdInSql(scopeIds)
     : { sql: "1=1", params: [] as number[] };
   const branchSqlR = branchSql.replace(/branch_id/g, "r.branch_id");
+  // Non-admin supervisors with no branch memberships should not see a global dump.
+  const scopedSql = !isAdmin && scopeIds.length === 0 ? "1=0" : branchSqlR;
 
   const pendingStatuses = [EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR];
   const phPending = pendingStatuses.map(() => "?").join(",");
@@ -63,53 +61,32 @@ export default async function ApprovalsPage({
   let order = "r.created_at DESC";
   let emptyMessage = "No requests found.";
 
+  // Supervisors see branch-scoped history (not only rows they personally approved),
+  // so a default-supervisor handoff after vacation cover still shows prior work.
   if (tab === "pending") {
-    where = isAdmin
-      ? `${branchSqlR} AND r.status IN (${phPending})`
-      : `${branchSqlR} AND r.status IN (${phPending}) AND r.supervisor_id = ?`;
-    params = isAdmin
-      ? [...branchParams, ...pendingStatuses]
-      : [...branchParams, ...pendingStatuses, session.id];
+    where = `${scopedSql} AND r.status IN (${phPending})`;
+    params = [...branchParams, ...pendingStatuses];
     order = "r.created_at DESC";
-    emptyMessage = `No requests pending your approval in ${branchName}.`;
+    emptyMessage = `No requests pending approval in ${branchName}.`;
   } else if (tab === "approved") {
-    where = isAdmin
-      ? `${branchSqlR} AND r.approved_at IS NOT NULL AND r.status NOT IN (?, ?, ?, ?)`
-      : `${branchSqlR} AND ${supervisorApprovedExistsSql("r")} AND r.status NOT IN (?, ?, ?, ?)`;
-    params = isAdmin
-      ? [
-          ...branchParams,
-          EXACT_STATUS.PENDING_SUPERVISOR,
-          SUSPENSE_STATUS.PENDING_SUPERVISOR,
-          EXACT_STATUS.REJECTED,
-          SUSPENSE_STATUS.REJECTED,
-        ]
-      : [
-          ...branchParams,
-          session.id,
-          EXACT_STATUS.PENDING_SUPERVISOR,
-          SUSPENSE_STATUS.PENDING_SUPERVISOR,
-          EXACT_STATUS.REJECTED,
-          SUSPENSE_STATUS.REJECTED,
-        ];
+    where = `${scopedSql} AND r.approved_at IS NOT NULL AND r.status NOT IN (?, ?, ?, ?)`;
+    params = [
+      ...branchParams,
+      EXACT_STATUS.PENDING_SUPERVISOR,
+      SUSPENSE_STATUS.PENDING_SUPERVISOR,
+      EXACT_STATUS.REJECTED,
+      SUSPENSE_STATUS.REJECTED,
+    ];
     order = "r.approved_at DESC";
     emptyMessage = `No approved requests in ${branchName} yet.`;
   } else if (tab === "rejected") {
-    where = isAdmin
-      ? `${branchSqlR} AND r.status IN (?, ?)`
-      : `${branchSqlR} AND ${supervisorActionExistsSql(["reject"], "r")} AND r.status IN (?, ?)`;
-    params = isAdmin
-      ? [...branchParams, EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED]
-      : [...branchParams, session.id, "reject", EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED];
+    where = `${scopedSql} AND r.status IN (?, ?)`;
+    params = [...branchParams, EXACT_STATUS.REJECTED, SUSPENSE_STATUS.REJECTED];
     order = "r.updated_at DESC";
     emptyMessage = `No rejected requests in ${branchName}.`;
   } else if (tab === "returned") {
-    where = isAdmin
-      ? `${branchSqlR} AND r.status IN (?, ?)`
-      : `${branchSqlR} AND ${supervisorActionExistsSql(["return"], "r")} AND r.status IN (?, ?)`;
-    params = isAdmin
-      ? [...branchParams, EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED]
-      : [...branchParams, session.id, "return", EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED];
+    where = `${scopedSql} AND r.status IN (?, ?)`;
+    params = [...branchParams, EXACT_STATUS.RETURNED, SUSPENSE_STATUS.RETURNED];
     order = "r.updated_at DESC";
     emptyMessage = `No requests returned for correction in ${branchName}.`;
   }
@@ -123,8 +100,8 @@ export default async function ApprovalsPage({
 
   const subtitles: Record<string, string> = {
     pending: `${branchName} — approve, reject or return requests for correction`,
-    approved: `${branchName} — requests you approved`,
-    rejected: `${branchName} — requests you rejected`,
+    approved: `${branchName} — approved requests on your branches`,
+    rejected: `${branchName} — rejected requests on your branches`,
     returned: `${branchName} — returned to the submitter for correction`,
   };
 

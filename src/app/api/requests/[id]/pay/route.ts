@@ -8,6 +8,7 @@ import { auditTx } from "@/lib/audit";
 import { EXACT_STATUS } from "@/lib/status";
 import { isElevated } from "@/lib/rbac";
 import { round2 } from "@/lib/util";
+import { syncRoleSupervisorCashReceiver } from "@/lib/supervisorCashReceiver";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -60,6 +61,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         remarks: `Exact payment for ${request.request_no}`,
         allowNegative: allowNeg,
       });
+
+      // Role-based "Supervisor" receiver → current personal/default supervisor.
+      await syncRoleSupervisorCashReceiver(conn, request);
 
       const approvedAmount = amount;
 

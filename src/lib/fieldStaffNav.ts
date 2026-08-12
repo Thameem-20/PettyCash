@@ -1,5 +1,6 @@
 import { queryOne } from "./db";
 import { CLOSED_STATUSES, EXACT_STATUS, OPEN_SUSPENSE_STATUSES, SUSPENSE_STATUS } from "./status";
+import { syncAwaitingRoleSupervisorReceivers } from "./supervisorCashReceiver";
 
 export type FieldStaffNavBadges = {
   confirmPending: number;
@@ -19,6 +20,18 @@ export async function getFieldStaffNavBadges(
       ? ` AND branch_id IN (${branchIds.map(() => "?").join(",")})`
       : "";
   const branchParams = branchIds && branchIds.length > 0 ? [...branchIds] : [];
+
+  // Keep role-based supervisor receivers pointed at the current default/personal supervisor.
+  await syncAwaitingRoleSupervisorReceivers();
+
+  const approvalsWhere =
+    branchIds && branchIds.length > 0
+      ? `status IN (?, ?) ${branchFilter}`
+      : `supervisor_id = ? AND status IN (?, ?)`;
+  const approvalsParams =
+    branchIds && branchIds.length > 0
+      ? [EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR, ...branchParams]
+      : [userId, EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR];
 
   const [confirmRow, suspenseRow, opsRow, approvalsRow] = await Promise.all([
     queryOne<{ c: number }>(
@@ -41,16 +54,8 @@ export async function getFieldStaffNavBadges(
       [userId, ...CLOSED_STATUSES]
     ),
     queryOne<{ c: number }>(
-      `SELECT COUNT(*) AS c FROM petty_cash_requests
-        WHERE supervisor_id = ?
-          AND status IN (?, ?)
-          ${branchFilter}`,
-      [
-        userId,
-        EXACT_STATUS.PENDING_SUPERVISOR,
-        SUSPENSE_STATUS.PENDING_SUPERVISOR,
-        ...branchParams,
-      ]
+      `SELECT COUNT(*) AS c FROM petty_cash_requests WHERE ${approvalsWhere}`,
+      approvalsParams
     ),
   ]);
 

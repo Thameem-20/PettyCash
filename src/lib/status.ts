@@ -62,13 +62,19 @@ export const TOPUP_STATUS = {
   CLOSED: "Closed",
 } as const;
 
-// Statuses an accounts user treats as "open suspense" (cash is out).
+// Statuses an accounts user treats as "open suspense" after cash is confirmed.
 export const OPEN_SUSPENSE_STATUSES: string[] = [
   SUSPENSE_STATUS.OPEN_SUSPENSE,
   SUSPENSE_STATUS.RECEIPT_SUBMITTED,
   SUSPENSE_STATUS.PENDING_SETTLEMENT_REVIEW,
   SUSPENSE_STATUS.BALANCE_RETURNED,
   SUSPENSE_STATUS.ADDITIONAL_PAYABLE,
+];
+
+/** Cash already issued from the till — includes awaiting receiver confirmation. */
+export const ISSUED_SUSPENSE_STATUSES: string[] = [
+  SUSPENSE_STATUS.AWAITING_CASH_RECEIPT,
+  ...OPEN_SUSPENSE_STATUSES,
 ];
 
 // Terminal statuses.

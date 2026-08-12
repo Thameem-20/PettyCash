@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { EnrichedRequest, RequestCharge } from "@/lib/requests";
 import { canAccSupAmendAmounts, canAccSupCorrectPaidAmount } from "@/lib/accSupAmend";
 import { money, round2, formatDate } from "@/lib/util";
+import { formatCashReceiverDisplay } from "@/lib/supervisorCashReceiverShared";
 import RequestChargeTabs from "@/components/RequestChargeTabs";
 import DescriptionAutocomplete from "@/components/DescriptionAutocomplete";
 import SuggestInput from "@/components/SuggestInput";
@@ -431,7 +432,7 @@ export default function RequestDetailsEditor({
         <Detail label="Submitted By" value={request.submitted_by_name} />
         <Detail
           label="Cash Receiver"
-          value={request.receiver_name || request.cash_receiver_label || "-"}
+          value={formatCashReceiverDisplay(request.receiver_name, request.cash_receiver_label)}
         />
         <Detail label="Submitted On" value={formatDate(request.created_at)} />
         {!isCorrectionBySubmitter && (

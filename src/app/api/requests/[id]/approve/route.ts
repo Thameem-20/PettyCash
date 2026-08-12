@@ -4,6 +4,7 @@ import { queryOne, withTransaction } from "@/lib/db";
 import { PettyCashRequest } from "@/lib/types";
 import { auditTx } from "@/lib/audit";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
+import { getUserRoleForBranch } from "@/lib/branchMembership";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -16,6 +17,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (request.submitted_by_user_id === session.id) {
       throw new ApiError(403, "You cannot approve your own request.");
+    }
+
+    const isAdmin = session.role === "admin" || session.primary_role === "admin";
+    if (!isAdmin) {
+      const roleOnBranch = await getUserRoleForBranch(session.id, request.branch_id);
+      if (roleOnBranch !== "supervisor") {
+        throw new ApiError(403, "You are not a supervisor on this request's branch.");
+      }
     }
 
     const pendingStatus =

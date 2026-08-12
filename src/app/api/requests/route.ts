@@ -33,6 +33,10 @@ import {
   getCashReceiverOptions,
   isCashReceiverTypeAllowed,
 } from "@/lib/cashReceiverOptions";
+import {
+  ROLE_SUPERVISOR_RECEIVER_LABEL,
+  resolveSupervisorCashReceiverUserId,
+} from "@/lib/supervisorCashReceiver";
 import { resolveAllowedJobChargeTypes } from "@/lib/chargeTypePolicy";
 import type { Role } from "@/lib/types";
 import {
@@ -385,7 +389,15 @@ export async function POST(req: NextRequest) {
     let cashReceiverLabel: string | null = null;
     if (isStaff || receiverType === "myself") {
       cashReceiverUserId = session.id;
-    } else if (receiverType === "messenger" || receiverType === "supervisor") {
+    } else if (receiverType === "supervisor") {
+      // Role-based: confirm goes to whoever is personal/default supervisor at pay/confirm time.
+      cashReceiverLabel = ROLE_SUPERVISOR_RECEIVER_LABEL;
+      cashReceiverUserId =
+        (await resolveSupervisorCashReceiverUserId(session.id, branchId)) ?? supervisorId;
+      if (!cashReceiverUserId) {
+        throw new ApiError(422, "No supervisor is configured for this branch.");
+      }
+    } else if (receiverType === "messenger") {
       if (receiverUserId) cashReceiverUserId = receiverUserId;
       else cashReceiverLabel = receiverLabel;
       if (!cashReceiverUserId && !cashReceiverLabel)
@@ -395,15 +407,9 @@ export async function POST(req: NextRequest) {
           "SELECT role FROM users WHERE id = ? AND is_active = 1",
           [cashReceiverUserId]
         );
-        if (receiverType === "messenger") {
-          if (!receiver || receiver.role !== "messenger") {
-            throw new ApiError(400, "Cash receiver must be a Messenger");
-          }
-        } else if (!receiver || receiver.role !== "supervisor") {
-          throw new ApiError(400, "Cash receiver must be a Supervisor");
+        if (!receiver || receiver.role !== "messenger") {
+          throw new ApiError(400, "Cash receiver must be a Messenger");
         }
-      } else if (receiverType === "supervisor") {
-        throw new ApiError(400, "Select a supervisor as cash receiver");
       }
     } else if (receiverType === "other") {
       // Legacy free-text receiver (kept for older clients).

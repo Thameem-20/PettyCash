@@ -12,7 +12,7 @@ import { getBranchListForSession } from "@/lib/accountsBranchServer";
 import { resolveActiveBranchParam } from "@/lib/preferredBranch";
 import { getAllBranchBalances } from "@/lib/ledger";
 import { PageHeader, StatCard } from "@/components/page-chrome";
-import { OPEN_SUSPENSE_STATUSES, TOPUP_STATUS, EXACT_STATUS } from "@/lib/status";
+import { ISSUED_SUSPENSE_STATUSES, TOPUP_STATUS, EXACT_STATUS } from "@/lib/status";
 import { getRequestsWhere, countRequestsWhere } from "@/lib/requests";
 import RequestTable from "@/components/RequestTable";
 import { money, formatDate } from "@/lib/util";
@@ -79,7 +79,7 @@ export default async function AccountsSupervisorPage({
     branchParams
   );
 
-  const ph = OPEN_SUSPENSE_STATUSES.map(() => "?").join(",");
+  const ph = ISSUED_SUSPENSE_STATUSES.map(() => "?").join(",");
   const overdue = await query<{
     request_no: string;
     submitted_by_name: string;
@@ -93,7 +93,7 @@ export default async function AccountsSupervisorPage({
         AND r.request_type='suspense' AND r.status IN (${ph})
         AND r.paid_at IS NOT NULL AND r.paid_at < (NOW() - INTERVAL 7 DAY)
       ORDER BY r.paid_at ASC`,
-    [...branchParams, ...OPEN_SUSPENSE_STATUSES]
+    [...branchParams, ...ISSUED_SUSPENSE_STATUSES]
   );
 
   const pendingTopups = await queryOne<{ c: number }>(

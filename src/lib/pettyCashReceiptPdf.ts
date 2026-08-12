@@ -8,6 +8,10 @@ import {
 } from "pdf-lib";
 import type { EnrichedRequest } from "./requests";
 import { readReceiptFile, normalizeImageBufferForPdf } from "./files";
+import {
+  formatCashReceiverDisplay,
+  isRoleSupervisorReceiver,
+} from "./supervisorCashReceiverShared";
 import { formatDate, formatDateOnly, money } from "./util";
 
 export const A4_W = 595.28;
@@ -421,7 +425,9 @@ export async function generatePettyCashPaymentReceiptPdf(
     color: MUTED,
   });
 
-  const paidTo = request.receiver_name || request.cash_receiver_label || request.submitted_by_name;
+  const paidTo = isRoleSupervisorReceiver(request.cash_receiver_label)
+    ? formatCashReceiverDisplay(request.receiver_name, request.cash_receiver_label)
+    : request.receiver_name || request.cash_receiver_label || request.submitted_by_name;
   const paidBy = request.processing_by_name || "Accounts";
   const paidAmount = money(request.paid_amount, request.currency);
   const paidDate = formatDateOnly(request.paid_at);
