@@ -254,11 +254,6 @@ export async function POST(req: NextRequest) {
 
     const submitterRole = await resolveRoleForBranch(session.id, branchId, primaryRole);
 
-    let fuelVehicleNo: string | null = null;
-    let fuelVehicleLabel: string | null = null;
-    let fuelFromKm: number | null = null;
-    let fuelToKm: number | null = null;
-    let fuelLiters: number | null = null;
     if (fuelRequested) {
       if (submitterRole !== "messenger" && submitterRole !== "cash_requester") {
         throw new ApiError(403, "Fuel charges are only available for messengers and cash requesters");
@@ -266,50 +261,51 @@ export async function POST(req: NextRequest) {
       if (compassion || chargeType !== "non_job") {
         throw new ApiError(400, "Fuel charges are only allowed for non-job related requests");
       }
-      fuelVehicleNo =
-        String(form.get("fuel_vehicle_no") || "").trim() ||
-        charges.find((c) => c.vehicleNumber)?.vehicleNumber ||
-        null;
-      if (!fuelVehicleNo) throw new ApiError(400, "Vehicle number is required for fuel charges");
 
-      const fleet = await findActiveFleetVehicleByPlate(fuelVehicleNo);
-      if (!fleet) {
-        throw new ApiError(
-          400,
-          "Select a vehicle from the admin vehicle list (plate number not found)"
-        );
-      }
-      fuelVehicleNo = fleet.plate_no;
-      fuelVehicleLabel = fleet.label;
+      // Legacy single-request fuel fields (older clients) — apply only when a charge
+      // did not send its own vehicle / liters.
+      const legacyVehicleNo = String(form.get("fuel_vehicle_no") || "").trim() || null;
+      const legacyFromKm = parseOptionalNumber(form.get("fuel_from_km"));
+      const legacyToKm = parseOptionalNumber(form.get("fuel_to_km"));
+      const legacyLiters = parseOptionalNumber(form.get("fuel_liters"));
 
-      fuelFromKm =
-        parseOptionalNumber(form.get("fuel_from_km")) ??
-        charges.find((c) => c.fuelFromKm != null)?.fuelFromKm ??
-        null;
-      fuelToKm =
-        parseOptionalNumber(form.get("fuel_to_km")) ??
-        charges.find((c) => c.fuelToKm != null)?.fuelToKm ??
-        null;
-      fuelLiters =
-        parseOptionalNumber(form.get("fuel_liters")) ??
-        charges.find((c) => c.fuelLiters != null)?.fuelLiters ??
-        null;
-      if (fuelFromKm != null && fuelFromKm < 0) {
-        throw new ApiError(400, "From km cannot be negative");
-      }
-      if (fuelToKm != null && fuelToKm < 0) {
-        throw new ApiError(400, "To km cannot be negative");
-      }
-      if (fuelFromKm != null && fuelToKm != null && fuelToKm < fuelFromKm) {
-        throw new ApiError(400, "To km must be greater than or equal to from km");
-      }
-      if (fuelLiters == null || fuelLiters <= 0) {
-        throw new ApiError(400, "Liters must be greater than zero for fuel charges");
-      }
-      for (const c of charges) {
+      for (let i = 0; i < charges.length; i++) {
+        const c = charges[i];
+        const n = i + 1;
         c.description = FUEL_DESCRIPTION;
-        c.vehicleNumber = fuelVehicleNo;
-        c.vehicleLabel = fuelVehicleLabel;
+
+        const plate = c.vehicleNumber || legacyVehicleNo;
+        if (!plate) {
+          throw new ApiError(400, `Charge ${n}: vehicle number is required for fuel charges`);
+        }
+        const fleet = await findActiveFleetVehicleByPlate(plate);
+        if (!fleet) {
+          throw new ApiError(
+            400,
+            `Charge ${n}: select a vehicle from the admin vehicle list (plate number not found)`
+          );
+        }
+        c.vehicleNumber = fleet.plate_no;
+        c.vehicleLabel = fleet.label;
+
+        const fuelFromKm = c.fuelFromKm ?? legacyFromKm;
+        const fuelToKm = c.fuelToKm ?? legacyToKm;
+        const fuelLiters = c.fuelLiters ?? legacyLiters;
+        if (fuelFromKm != null && fuelFromKm < 0) {
+          throw new ApiError(400, `Charge ${n}: from km cannot be negative`);
+        }
+        if (fuelToKm != null && fuelToKm < 0) {
+          throw new ApiError(400, `Charge ${n}: to km cannot be negative`);
+        }
+        if (fuelFromKm != null && fuelToKm != null && fuelToKm < fuelFromKm) {
+          throw new ApiError(
+            400,
+            `Charge ${n}: to km must be greater than or equal to from km`
+          );
+        }
+        if (fuelLiters == null || fuelLiters <= 0) {
+          throw new ApiError(400, `Charge ${n}: liters must be greater than zero for fuel charges`);
+        }
         c.fuelFromKm = fuelFromKm;
         c.fuelToKm = fuelToKm;
         c.fuelLiters = fuelLiters;
@@ -497,11 +493,11 @@ export async function POST(req: NextRequest) {
           truck_number: compassion ? c.truckNumber : null,
           trailer_number: compassion ? c.trailerNumber : null,
           driver_id: compassion ? c.driverId : null,
-          fuel_from_km: fuelRequested ? fuelFromKm : null,
-          fuel_to_km: fuelRequested ? fuelToKm : null,
-          fuel_liters: fuelRequested ? fuelLiters : null,
-          vehicle_number: fuelRequested ? fuelVehicleNo : null,
-          vehicle_label: fuelRequested ? fuelVehicleLabel : null,
+          fuel_from_km: fuelRequested ? c.fuelFromKm : null,
+          fuel_to_km: fuelRequested ? c.fuelToKm : null,
+          fuel_liters: fuelRequested ? c.fuelLiters : null,
+          vehicle_number: fuelRequested ? c.vehicleNumber : null,
+          vehicle_label: fuelRequested ? c.vehicleLabel : null,
         });
       }
 

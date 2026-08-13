@@ -93,6 +93,46 @@ export default function RequestChargeTabs({
               <p className="mt-0.5 text-sm font-medium text-slate-700">{charge.driver_name}</p>
             </div>
           )}
+          {charge.vehicle_number && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Vehicle No
+              </p>
+              <p className="mt-0.5 text-sm font-medium text-slate-700">{charge.vehicle_number}</p>
+            </div>
+          )}
+          {charge.vehicle_label && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Vehicle
+              </p>
+              <p className="mt-0.5 text-sm font-medium text-slate-700">{charge.vehicle_label}</p>
+            </div>
+          )}
+          {charge.fuel_from_km != null && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">From km</p>
+              <p className="mt-0.5 text-sm font-medium text-slate-700">
+                {Number(charge.fuel_from_km)}
+              </p>
+            </div>
+          )}
+          {charge.fuel_to_km != null && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">To km</p>
+              <p className="mt-0.5 text-sm font-medium text-slate-700">
+                {Number(charge.fuel_to_km)}
+              </p>
+            </div>
+          )}
+          {charge.fuel_liters != null && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Liters</p>
+              <p className="mt-0.5 text-sm font-medium text-slate-700">
+                {Number(charge.fuel_liters)}
+              </p>
+            </div>
+          )}
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
               {charge.actual_amount != null ? "Requested Amount" : "Amount"}
