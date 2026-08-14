@@ -157,7 +157,7 @@ export default function JobNumbersInput({
           <div className="flex gap-2">
             <input
               className="input flex-1"
-              placeholder="e.g. 133/SIMP/26/225"
+              placeholder="e.g. 133/SIMP/26/225 or 133/WHCS/CURM/26/31"
               value={value}
               onChange={(e) => update(index, e.target.value)}
             />

@@ -1,8 +1,9 @@
 import { query, queryOne } from "./db";
 import { Branch, JobCodeMapping } from "./types";
 
-// Job number format e.g. 133/SIMP/26/225 -> first segment is the branch code.
-const JOB_NUMBER_RE = /^([A-Za-z0-9]+)\/[^/]+\/[^/]+\/[^/]+$/;
+// Job number format: 4 parts (133/SIMP/26/225) or 5 parts warehouse (133/WHCS/CURM/26/31).
+// First segment is the branch code.
+const JOB_NUMBER_RE = /^([A-Za-z0-9]+)\/[^/]+\/[^/]+\/[^/]+(?:\/[^/]+)?$/;
 
 export function normalizeJobNumber(jobNumber: string): string {
   return jobNumber.trim().toUpperCase();
@@ -28,7 +29,10 @@ export interface BranchResolution {
 export async function resolveBranchFromJobNumber(jobNumber: string): Promise<BranchResolution> {
   jobNumber = normalizeJobNumber(jobNumber);
   if (!isValidJobNumberFormat(jobNumber)) {
-    return { ok: false, error: "Invalid job number format. Expected e.g. 133/SIMP/26/225." };
+    return {
+      ok: false,
+      error: "Invalid job number format. Expected e.g. 133/SIMP/26/225 or 133/WHCS/CURM/26/31.",
+    };
   }
   const code = extractJobCode(jobNumber)!;
   const mapping = await queryOne<JobCodeMapping>(
