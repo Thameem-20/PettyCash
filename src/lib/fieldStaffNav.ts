@@ -24,14 +24,13 @@ export async function getFieldStaffNavBadges(
   // Keep role-based supervisor receivers pointed at the current default/personal supervisor.
   await syncAwaitingRoleSupervisorReceivers();
 
-  const approvalsWhere =
-    branchIds && branchIds.length > 0
-      ? `status IN (?, ?) ${branchFilter}`
-      : `supervisor_id = ? AND status IN (?, ?)`;
-  const approvalsParams =
-    branchIds && branchIds.length > 0
-      ? [EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR, ...branchParams]
-      : [userId, EXACT_STATUS.PENDING_SUPERVISOR, SUSPENSE_STATUS.PENDING_SUPERVISOR];
+  const approvalsWhere = `supervisor_id = ? AND status IN (?, ?)${branchFilter}`;
+  const approvalsParams = [
+    userId,
+    EXACT_STATUS.PENDING_SUPERVISOR,
+    SUSPENSE_STATUS.PENDING_SUPERVISOR,
+    ...branchParams,
+  ];
 
   const [confirmRow, suspenseRow, opsRow, approvalsRow] = await Promise.all([
     queryOne<{ c: number }>(

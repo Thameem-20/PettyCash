@@ -169,7 +169,13 @@ export async function canViewRequest(session: SessionUser, r: EnrichedRequest): 
     case "supervisor": {
       if (r.supervisor_id === session.id) return true;
       const roleOnBranch = await getUserRoleForBranch(session.id, r.branch_id);
-      return roleOnBranch === "supervisor";
+      if (roleOnBranch !== "supervisor") return false;
+      const pendingSupervisor =
+        r.status === EXACT_STATUS.PENDING_SUPERVISOR ||
+        r.status === SUSPENSE_STATUS.PENDING_SUPERVISOR;
+      // Pending: only the assigned supervisor (unassigned = any branch supervisor).
+      if (pendingSupervisor && r.supervisor_id != null) return false;
+      return true;
     }
     case "accounts": {
       const ids = await accountsBranchIds(session.id);

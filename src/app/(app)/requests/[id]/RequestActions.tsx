@@ -129,7 +129,12 @@ export default function RequestActions({
   }
 
   const primary = session.primary_role || session.role;
-  const isSupervisor = session.role === "supervisor" || session.role === "admin";
+  const isAdmin = session.role === "admin" || primary === "admin";
+  const isSupervisor = session.role === "supervisor" || isAdmin;
+  const isAssignedSupervisor =
+    isAdmin ||
+    (session.role === "supervisor" &&
+      (request.supervisor_id == null || request.supervisor_id === session.id));
   const isAccSup =
     session.role === "accounts_supervisor" ||
     primary === "accounts_supervisor" ||
@@ -210,7 +215,7 @@ export default function RequestActions({
 
   // ---- Supervisor approval (not for staff self-reimbursements) ----
   if (
-    isSupervisor &&
+    isAssignedSupervisor &&
     (s === EXACT_STATUS.PENDING_SUPERVISOR || s === SUSPENSE_STATUS.PENDING_SUPERVISOR) &&
     !isStaffReimbursementRole(request.submitter_role)
   ) {

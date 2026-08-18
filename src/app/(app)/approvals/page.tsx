@@ -61,13 +61,19 @@ export default async function ApprovalsPage({
   let order = "r.created_at DESC";
   let emptyMessage = "No requests found.";
 
-  // Supervisors see branch-scoped history (not only rows they personally approved),
-  // so a default-supervisor handoff after vacation cover still shows prior work.
+  // Pending is assigned-supervisor only. History stays branch-scoped so cover
+  // work (Acc Sup on behalf, or a later default-supervisor handoff) remains visible.
   if (tab === "pending") {
-    where = `${scopedSql} AND r.status IN (${phPending})`;
-    params = [...branchParams, ...pendingStatuses];
+    if (isAdmin) {
+      where = `${scopedSql} AND r.status IN (${phPending})`;
+      params = [...branchParams, ...pendingStatuses];
+      emptyMessage = `No requests pending approval in ${branchName}.`;
+    } else {
+      where = `${scopedSql} AND r.supervisor_id = ? AND r.status IN (${phPending})`;
+      params = [...branchParams, session.id, ...pendingStatuses];
+      emptyMessage = `No requests assigned to you for approval in ${branchName}.`;
+    }
     order = "r.created_at DESC";
-    emptyMessage = `No requests pending approval in ${branchName}.`;
   } else if (tab === "approved") {
     where = `${scopedSql} AND r.approved_at IS NOT NULL AND r.status NOT IN (?, ?, ?, ?)`;
     params = [
@@ -99,7 +105,9 @@ export default async function ApprovalsPage({
   });
 
   const subtitles: Record<string, string> = {
-    pending: `${branchName} — approve, reject or return requests for correction`,
+    pending: isAdmin
+      ? `${branchName} — approve, reject or return requests for correction`
+      : `${branchName} — requests assigned to you`,
     approved: `${branchName} — approved requests on your branches`,
     rejected: `${branchName} — rejected requests on your branches`,
     returned: `${branchName} — returned to the submitter for correction`,

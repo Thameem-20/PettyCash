@@ -25,6 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (roleOnBranch !== "supervisor") {
         throw new ApiError(403, "You are not a supervisor on this request's branch.");
       }
+      if (request.supervisor_id != null && request.supervisor_id !== session.id) {
+        throw new ApiError(403, "This request is assigned to another supervisor.");
+      }
     }
 
     const pendingStatus =
