@@ -34,12 +34,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
+    const isAdminOrElevated =
+      isElevated(session.role) ||
+      session.role === "admin" ||
+      session.primary_role === "admin";
     const isReceiver =
       request.cash_receiver_user_id === session.id ||
       request.submitted_by_user_id === session.id ||
       (roleSupervisorId != null && roleSupervisorId === session.id);
-    if (!isReceiver && !isElevated(session.role)) {
+    const confirmingOnBehalf = !isReceiver && isAdminOrElevated;
+    if (!isReceiver && !isAdminOrElevated) {
       throw new ApiError(403, "Only the cash receiver can confirm receipt.");
+    }
+    if (confirmingOnBehalf && !remarks) {
+      throw new ApiError(
+        400,
+        "Remarks are required when confirming on behalf of the cash receiver."
+      );
     }
 
     await withTransaction(async (conn) => {
@@ -63,9 +74,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         await conn.execute("UPDATE petty_cash_requests SET status = ? WHERE id = ?", [newStatus, id]);
       }
 
-      const comment = remarks
-        ? `Cash received confirmed. Note: ${remarks}`
-        : "Cash received confirmed";
+      const comment = confirmingOnBehalf
+        ? `Cash receipt confirmed on behalf of receiver. Note: ${remarks}`
+        : remarks
+          ? `Cash received confirmed. Note: ${remarks}`
+          : "Cash received confirmed";
 
       await conn.execute(
         `INSERT INTO approvals (request_id, approver_user_id, approval_level, action, comments)

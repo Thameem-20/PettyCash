@@ -67,6 +67,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/admin/branches", label: "Branches", roles: ["admin"] },
   { href: "/admin/categories", label: "Categories", roles: ["admin"] },
   { href: "/admin/job-codes", label: "Job Codes", roles: ["admin"] },
+  { href: "/admin/cash-receipt", label: "Cash Receipt", roles: ["admin"] },
   { href: "/admin/banks", label: "Bank Accounts", roles: ["admin"] },
   { href: "/admin/compassion", label: "Compassion", roles: ["admin"] },
   { href: "/admin/vehicles", label: "Vehicles", roles: ["admin"] },

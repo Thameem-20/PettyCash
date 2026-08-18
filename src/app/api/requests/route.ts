@@ -394,18 +394,16 @@ export async function POST(req: NextRequest) {
         throw new ApiError(422, "No supervisor is configured for this branch.");
       }
     } else if (receiverType === "messenger") {
-      if (receiverUserId) cashReceiverUserId = receiverUserId;
-      else cashReceiverLabel = receiverLabel;
-      if (!cashReceiverUserId && !cashReceiverLabel)
-        throw new ApiError(400, "Select or name the cash receiver");
-      if (cashReceiverUserId) {
-        const receiver = await queryOne<{ role: string }>(
-          "SELECT role FROM users WHERE id = ? AND is_active = 1",
-          [cashReceiverUserId]
-        );
-        if (!receiver || receiver.role !== "messenger") {
-          throw new ApiError(400, "Cash receiver must be a Messenger");
-        }
+      if (!receiverUserId) {
+        throw new ApiError(400, "Select a messenger as cash receiver");
+      }
+      cashReceiverUserId = receiverUserId;
+      const receiver = await queryOne<{ role: string }>(
+        "SELECT role FROM users WHERE id = ? AND is_active = 1",
+        [cashReceiverUserId]
+      );
+      if (!receiver || receiver.role !== "messenger") {
+        throw new ApiError(400, "Cash receiver must be a Messenger");
       }
     } else if (receiverType === "other") {
       // Legacy free-text receiver (kept for older clients).

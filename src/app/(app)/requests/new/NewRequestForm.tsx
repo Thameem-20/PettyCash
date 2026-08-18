@@ -171,7 +171,6 @@ export default function NewRequestForm({
   const [branchId, setBranchId] = useState<number | "">("");
   const [receiverType, setReceiverType] = useState<CashReceiverType>("myself");
   const [receiverUserId, setReceiverUserId] = useState<number | "">("");
-  const [receiverLabel, setReceiverLabel] = useState("");
   const [handlerInfo, setHandlerInfo] = useState<{ branchName?: string; handlers: { name: string }[] }>({
     handlers: [],
   });
@@ -298,7 +297,6 @@ export default function NewRequestForm({
         setCashReceiverOptionsFallback(fallback);
         setReceiverType(firstAllowedCashReceiverType(fallback));
         setReceiverUserId("");
-        setReceiverLabel("");
         setCharges([emptyCharge()]);
         setFuelCharges(false);
         setFleetVehicles(d.fleetVehicles || []);
@@ -352,7 +350,6 @@ export default function NewRequestForm({
         branchId,
         receiverType,
         receiverUserId,
-        receiverLabel,
         fuelCharges,
         charges: chargesToDraft(charges),
       });
@@ -367,7 +364,6 @@ export default function NewRequestForm({
     branchId,
     receiverType,
     receiverUserId,
-    receiverLabel,
     fuelCharges,
     charges,
   ]);
@@ -384,7 +380,6 @@ export default function NewRequestForm({
           branchId,
           receiverType,
           receiverUserId,
-          receiverLabel,
           fuelCharges,
           charges: chargesToDraft(charges),
         })) ||
@@ -405,7 +400,6 @@ export default function NewRequestForm({
     branchId,
     receiverType,
     receiverUserId,
-    receiverLabel,
     fuelCharges,
     charges,
   ]);
@@ -417,7 +411,6 @@ export default function NewRequestForm({
     setBranchId(pendingDraft.branchId);
     setReceiverType(pendingDraft.receiverType);
     setReceiverUserId(pendingDraft.receiverUserId);
-    setReceiverLabel(pendingDraft.receiverLabel);
     setFuelCharges(pendingDraft.fuelCharges);
     setCharges(
       pendingDraft.charges.length
@@ -445,7 +438,6 @@ export default function NewRequestForm({
     }
     setReceiverType(firstAllowedCashReceiverType(cashReceiverOptions));
     setReceiverUserId("");
-    setReceiverLabel("");
   }, [
     cashReceiverOptions.myself,
     cashReceiverOptions.messenger,
@@ -580,10 +572,9 @@ export default function NewRequestForm({
       !isCashRequester &&
       !isCompassion &&
       receiverType === "messenger" &&
-      !receiverUserId &&
-      !receiverLabel.trim()
+      !receiverUserId
     )
-      return "Select or name the cash receiver";
+      return "Select a messenger as cash receiver";
     return null;
   }
 
@@ -609,9 +600,8 @@ export default function NewRequestForm({
       fd.set("charge_type", submitChargeType);
       if (isCompassion || submitChargeType === "non_job") fd.set("branch_id", String(branchId));
       fd.set("cash_receiver_type", isCashRequester || isStaff || isCompassion ? "myself" : receiverType);
-      if (receiverType === "messenger") {
-        if (receiverUserId) fd.set("cash_receiver_user_id", String(receiverUserId));
-        if (receiverLabel.trim()) fd.set("cash_receiver_label", receiverLabel.trim());
+      if (receiverType === "messenger" && receiverUserId) {
+        fd.set("cash_receiver_user_id", String(receiverUserId));
       }
 
       if (fuelActive) {
@@ -902,7 +892,6 @@ export default function NewRequestForm({
                 onClick={() => {
                   setReceiverType("myself");
                   setReceiverUserId("");
-                  setReceiverLabel("");
                 }}
               >
                 Myself
@@ -914,7 +903,6 @@ export default function NewRequestForm({
                 onClick={() => {
                   setReceiverType("messenger");
                   setReceiverUserId("");
-                  setReceiverLabel("");
                 }}
               >
                 Messenger
@@ -926,7 +914,6 @@ export default function NewRequestForm({
                 onClick={() => {
                   setReceiverType("supervisor");
                   setReceiverUserId("");
-                  setReceiverLabel("");
                 }}
               >
                 Supervisor
@@ -934,26 +921,19 @@ export default function NewRequestForm({
             )}
           </div>
           {receiverType === "messenger" && cashReceiverOptions.messenger && (
-            <div className="space-y-2">
-              <select
-                className="input"
-                value={receiverUserId}
-                onChange={(e) => setReceiverUserId(Number(e.target.value) || "")}
-              >
-                <option value="">Select messenger</option>
-                {receivers.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input"
-                placeholder="Or type a name (if not in list)"
-                value={receiverLabel}
-                onChange={(e) => setReceiverLabel(e.target.value)}
-              />
-            </div>
+            <select
+              className="input"
+              value={receiverUserId}
+              onChange={(e) => setReceiverUserId(Number(e.target.value) || "")}
+              required
+            >
+              <option value="">Select messenger</option>
+              {receivers.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
           )}
           {receiverType === "supervisor" && cashReceiverOptions.supervisor && (
             <p className="border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">

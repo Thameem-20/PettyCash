@@ -26,7 +26,6 @@ export type NewRequestDraft = {
   branchId: number | "";
   receiverType: CashReceiverType;
   receiverUserId: number | "";
-  receiverLabel: string;
   fuelCharges: boolean;
   charges: NewRequestDraftCharge[];
 };
