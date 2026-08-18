@@ -38,12 +38,12 @@ export default async function ConfirmPage({
     <div>
       <PageHeader
         title="Pending Confirmation"
-        subtitle="Confirm cash you have received"
+        subtitle="Confirm cash you have received, including jobs from other branches."
         actions={<span className="md:hidden"><RefreshButton /></span>}
       />
       <RequestTable
         rows={rows}
-        showBranch={false}
+        showBranch
         emptyMessage="Nothing awaiting your confirmation."
       />
       <Pagination meta={meta} />
