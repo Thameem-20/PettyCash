@@ -168,6 +168,7 @@ CREATE TABLE user_approval_policy_exceptions (
                   'self_approve_pending_payment'
                 ) NOT NULL,
   note          VARCHAR(255) NULL,
+  allow_non_job TINYINT(1) NOT NULL DEFAULT 0,
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_uape_user   FOREIGN KEY (user_id)   REFERENCES users(id)    ON DELETE CASCADE,

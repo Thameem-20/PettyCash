@@ -185,6 +185,7 @@ export default function NewRequestForm({
   const [uploadProgress, setUploadProgress] = useState<number | null>(0);
   const [pendingDraft, setPendingDraft] = useState<NewRequestDraft | null>(null);
   const [allowAutosave, setAllowAutosave] = useState(false);
+  const [allowOpsNonJob, setAllowOpsNonJob] = useState(false);
   const [formMetaReady, setFormMetaReady] = useState(false);
 
   const scopeBranchId =
@@ -206,13 +207,14 @@ export default function NewRequestForm({
     suspenseScope,
     requestType
   );
-  const showChargeTypePicker = !isCompassion && allowedJobTypes.length > 1 && !isOps;
+  const showChargeTypePicker =
+    !isCompassion && allowedJobTypes.length > 1 && (!isOps || allowOpsNonJob);
   const lockedJobChargeType = allowedJobTypes.length === 1 ? allowedJobTypes[0] : null;
   const effectiveJobChargeType: JobChargeType = isCompassion
     ? "non_job"
     : lockedJobChargeType
       ? lockedJobChargeType
-      : isOps && allowedJobTypes.includes("job")
+      : isOps && !allowOpsNonJob && allowedJobTypes.includes("job")
         ? "job"
         : chargeType === "job" || chargeType === "non_job"
           ? chargeType
@@ -295,6 +297,7 @@ export default function NewRequestForm({
         setCashReceiverOptionsByBranch(d.cashReceiverOptionsByBranch || {});
         const fallback = d.cashReceiverOptions || DEFAULT_CASH_RECEIVER_OPTIONS;
         setCashReceiverOptionsFallback(fallback);
+        setAllowOpsNonJob(Boolean(d.allowOpsNonJob));
         setReceiverType(firstAllowedCashReceiverType(fallback));
         setReceiverUserId("");
         setCharges([emptyCharge()]);
@@ -320,7 +323,7 @@ export default function NewRequestForm({
           const suspense = (d.suspenseChargeScope || "inherit") as SuspenseChargeScope;
           const allowed = resolveAllowedJobChargeTypes(scope, suspense, "exact");
           const initial =
-            isOps && allowed.includes("job")
+            isOps && !d.allowOpsNonJob && allowed.includes("job")
               ? "job"
               : pickDefaultJobChargeType(allowed);
           setChargeType(initial);

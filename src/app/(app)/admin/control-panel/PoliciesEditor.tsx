@@ -23,6 +23,7 @@ type Exception = {
   branch_id: number | null;
   approval_path: ApprovalPath;
   note: string | null;
+  allow_non_job?: number;
   user_name?: string;
   user_email?: string;
   branch_name?: string | null;
@@ -79,6 +80,7 @@ export default function PoliciesEditor({
   const [exBranchId, setExBranchId] = useState<number | "all">("all");
   const [exPath, setExPath] = useState<ApprovalPath>("direct_accounts");
   const [exNote, setExNote] = useState("");
+  const [exAllowNonJob, setExAllowNonJob] = useState(false);
 
   const opsUsers = useMemo(
     () => users.filter((u) => u.role === "operations" || u.role === "admin"),
@@ -192,6 +194,7 @@ export default function PoliciesEditor({
           branch_id: exBranchId === "all" ? null : exBranchId,
           approval_path: exPath,
           note: exNote.trim() || null,
+          allow_non_job: exAllowNonJob,
         }),
       });
       const data = await res.json();
@@ -202,6 +205,7 @@ export default function PoliciesEditor({
       setExceptions(data.exceptions || []);
       setExOk("Exception saved");
       setExNote("");
+      setExAllowNonJob(false);
       router.refresh();
     } catch {
       setExError("Network error");
@@ -404,8 +408,9 @@ export default function PoliciesEditor({
           <p className="mt-1 text-sm text-slate-500">
             Override the branch default for specific people. Example: Dubai is normally{" "}
             <b>Supervisor → Accounts</b>, but User A can be set to <b>Direct to Accounts</b> so their
-            requests skip the supervisor. A branch-specific exception wins over an “All branches”
-            exception.
+            requests skip the supervisor. Tick <b>Allow non-job related</b> for Operations users who
+            need to submit non-job shipments (hidden for Ops by default). A branch-specific exception
+            wins over an “All branches” exception.
           </p>
         </div>
 
@@ -414,7 +419,7 @@ export default function PoliciesEditor({
 
         <form
           onSubmit={addException}
-          className="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"
+          className="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6 lg:items-end"
         >
           <div className="lg:col-span-1">
             <label className="label">User</label>
@@ -472,6 +477,14 @@ export default function PoliciesEditor({
               placeholder="Why this exception"
             />
           </div>
+          <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={exAllowNonJob}
+              onChange={(e) => setExAllowNonJob(e.target.checked)}
+            />
+            Allow non-job related
+          </label>
           <button type="submit" className="btn-primary" disabled={exBusy || !exUserId}>
             {exBusy ? "Saving…" : "Add exception"}
           </button>
@@ -484,6 +497,7 @@ export default function PoliciesEditor({
                 <th className="th">User</th>
                 <th className="th">Branch</th>
                 <th className="th">Approval path</th>
+                <th className="th">Non-job</th>
                 <th className="th">Note</th>
                 <th className="th"></th>
               </tr>
@@ -491,7 +505,7 @@ export default function PoliciesEditor({
             <tbody className="divide-y divide-slate-100">
               {exceptions.length === 0 ? (
                 <tr>
-                  <td className="td text-sm text-slate-500" colSpan={5}>
+                  <td className="td text-sm text-slate-500" colSpan={6}>
                     No user exceptions yet. Branch defaults apply to everyone.
                   </td>
                 </tr>
@@ -504,6 +518,7 @@ export default function PoliciesEditor({
                     </td>
                     <td className="td">{ex.branch_name || "All branches"}</td>
                     <td className="td">{pathLabels[ex.approval_path]}</td>
+                    <td className="td">{ex.allow_non_job ? "Allowed" : "—"}</td>
                     <td className="td text-sm text-slate-500">{ex.note || "—"}</td>
                     <td className="td text-right">
                       <button

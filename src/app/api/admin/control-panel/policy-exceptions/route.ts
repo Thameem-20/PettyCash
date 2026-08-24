@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
         : Number(body.branch_id);
     const approvalPath = String(body.approval_path || "") as ApprovalPath;
     const note = body.note != null ? String(body.note).trim() || null : null;
+    const allowNonJob = Boolean(body.allow_non_job);
 
     if (!Number.isFinite(userId) || userId <= 0) {
       throw new ApiError(422, "user_id is required");
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
       branchId,
       approvalPath,
       note,
+      allowNonJob,
     });
 
     return ok({ exceptions: await listUserApprovalExceptions() });

@@ -4,7 +4,7 @@ import { resolveAccountsBranch, type AccountsBranch } from "@/lib/accountsBranch
 import { getBranchProfile, isCompassionMode, listBranchProfiles } from "@/lib/branchProfile";
 import { listActiveCompassionDrivers } from "@/lib/compassion";
 import { listActiveFleetVehicles } from "@/lib/fleetVehicles";
-import { getSuspenseChargeScope } from "@/lib/approvalPolicy";
+import { getSuspenseChargeScope, userHasNonJobChargeException } from "@/lib/approvalPolicy";
 import { DEFAULT_CASH_RECEIVER_OPTIONS, getCashReceiverOptions } from "@/lib/cashReceiverOptions";
 import { resolveRoleForBranch } from "@/lib/branchMembership";
 import type { Role } from "@/lib/types";
@@ -73,6 +73,8 @@ export async function GET() {
       (defaultBranchId && cashReceiverOptionsByBranch[defaultBranchId]) ||
       (await getCashReceiverOptions(session.id, defaultBranchId));
 
+    const allowOpsNonJob = await userHasNonJobChargeException(session.id);
+
     return ok({
       categories,
       branches,
@@ -90,6 +92,7 @@ export async function GET() {
       branchSuspenseScopes,
       cashReceiverOptions,
       cashReceiverOptionsByBranch,
+      allowOpsNonJob,
       compassionBranch: isCompassion && profile
         ? {
             id: profile.branch_id,

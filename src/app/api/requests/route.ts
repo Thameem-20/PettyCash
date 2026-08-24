@@ -28,6 +28,7 @@ import {
   createStateFromApprovalPath,
   getApprovalPath,
   getSuspenseChargeScope,
+  userExceptionAllowsNonJob,
 } from "@/lib/approvalPolicy";
 import {
   getCashReceiverOptions,
@@ -333,7 +334,12 @@ export async function POST(req: NextRequest) {
             : "This charge type is not allowed for this branch."
         );
       }
-      if (submitterRole === "operations" && chargeType !== "job" && allowed.includes("job")) {
+      if (
+        submitterRole === "operations" &&
+        chargeType !== "job" &&
+        allowed.includes("job") &&
+        !(await userExceptionAllowsNonJob(session.id, branchId))
+      ) {
         throw new ApiError(400, "Operations requests must be job related.");
       }
     }

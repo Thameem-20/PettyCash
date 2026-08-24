@@ -23,6 +23,7 @@ export interface UserApprovalException {
   branch_id: number | null;
   approval_path: ApprovalPath;
   note: string | null;
+  allow_non_job: number;
   user_name?: string;
   user_email?: string;
   branch_name?: string | null;
@@ -104,6 +105,7 @@ export async function listApprovalPolicies(branchId?: number): Promise<BranchApp
 export async function listUserApprovalExceptions(): Promise<UserApprovalException[]> {
   return query<UserApprovalException>(
     `SELECT e.id, e.user_id, e.branch_id, e.approval_path, e.note,
+            COALESCE(e.allow_non_job, 0) AS allow_non_job,
             u.name AS user_name, u.email AS user_email,
             b.branch_name
        FROM user_approval_policy_exceptions e
@@ -118,16 +120,57 @@ export async function upsertUserApprovalException(input: {
   branchId: number | null;
   approvalPath: ApprovalPath;
   note?: string | null;
+  allowNonJob?: boolean;
 }): Promise<void> {
   await execute(
     `INSERT INTO user_approval_policy_exceptions
-       (user_id, branch_id, approval_path, note)
-     VALUES (?, ?, ?, ?)
+       (user_id, branch_id, approval_path, note, allow_non_job)
+     VALUES (?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        approval_path = VALUES(approval_path),
-       note = VALUES(note)`,
-    [input.userId, input.branchId, input.approvalPath, input.note ?? null]
+       note = VALUES(note),
+       allow_non_job = VALUES(allow_non_job)`,
+    [
+      input.userId,
+      input.branchId,
+      input.approvalPath,
+      input.note ?? null,
+      input.allowNonJob ? 1 : 0,
+    ]
   );
+}
+
+/** True if this user has any exception that unlocks non-job related charges. */
+export async function userHasNonJobChargeException(userId: number): Promise<boolean> {
+  const row = await queryOne<{ ok: number }>(
+    `SELECT 1 AS ok FROM user_approval_policy_exceptions
+      WHERE user_id = ? AND allow_non_job = 1 LIMIT 1`,
+    [userId]
+  );
+  return Boolean(row);
+}
+
+/**
+ * Resolve allow_non_job for a request on this branch.
+ * Branch-specific exception wins over an all-branches row.
+ */
+export async function userExceptionAllowsNonJob(
+  userId: number,
+  branchId: number
+): Promise<boolean> {
+  const specific = await queryOne<{ allow_non_job: number }>(
+    `SELECT allow_non_job FROM user_approval_policy_exceptions
+      WHERE user_id = ? AND branch_id = ?`,
+    [userId, branchId]
+  );
+  if (specific) return Boolean(specific.allow_non_job);
+
+  const allBranches = await queryOne<{ allow_non_job: number }>(
+    `SELECT allow_non_job FROM user_approval_policy_exceptions
+      WHERE user_id = ? AND branch_id IS NULL`,
+    [userId]
+  );
+  return Boolean(allBranches?.allow_non_job);
 }
 
 export async function deleteUserApprovalException(id: number): Promise<boolean> {
