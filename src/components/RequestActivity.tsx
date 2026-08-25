@@ -1,15 +1,17 @@
 import { RequestActivityItem } from "@/lib/requests";
 import { money, formatDate } from "@/lib/util";
+import { ROLE_LABELS } from "@/lib/rbac";
+import type { Role } from "@/lib/types";
 
 const LEVEL_LABELS: Record<string, string> = {
-  cash_requester: "Cash Requester",
-  messenger: "Messenger",
   submitter: "Submitter",
-  supervisor: "Supervisor",
-  accounts: "Accounts",
-  accounts_supervisor: "Accounts Supervisor",
   receiver: "Receiver",
 };
+
+function labelLevel(level: string) {
+  if (level in ROLE_LABELS) return ROLE_LABELS[level as Role];
+  return LEVEL_LABELS[level] || level.replace(/_/g, " ");
+}
 
 const ACTION_LABELS: Record<string, string> = {
   submitted: "Submitted request",
@@ -39,10 +41,6 @@ const ACTION_LABELS: Record<string, string> = {
 
 function labelAction(action: string) {
   return ACTION_LABELS[action] || action.replace(/_/g, " ");
-}
-
-function labelLevel(level: string) {
-  return LEVEL_LABELS[level] || level.replace(/_/g, " ");
 }
 
 function dotStyles(action: string) {

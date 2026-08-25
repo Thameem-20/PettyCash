@@ -9,11 +9,24 @@ export function money(amount: number | null | undefined, currency = "AED"): stri
   })}`;
 }
 
+const DISPLAY_TIME_ZONE = "Asia/Dubai";
+
+/** Parse a MySQL DATETIME string. Naive values are UTC (server NOW()); show in Dubai. */
+function parseDbDate(d: string): Date | null {
+  const trimmed = d.trim();
+  if (!trimmed) return null;
+  const iso = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const withZone = /[zZ]$/.test(iso) || /[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`;
+  const date = new Date(withZone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export function formatDate(d: string | null | undefined): string {
   if (!d) return "-";
-  const date = new Date(d.replace(" ", "T"));
-  if (isNaN(date.getTime())) return d;
+  const date = parseDbDate(d);
+  if (!date) return d;
   return date.toLocaleString("en-GB", {
+    timeZone: DISPLAY_TIME_ZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -24,9 +37,14 @@ export function formatDate(d: string | null | undefined): string {
 
 export function formatDateOnly(d: string | null | undefined): string {
   if (!d) return "-";
-  const date = new Date(d.replace(" ", "T"));
-  if (isNaN(date.getTime())) return d;
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  const date = parseDbDate(d);
+  if (!date) return d;
+  return date.toLocaleDateString("en-GB", {
+    timeZone: DISPLAY_TIME_ZONE,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 /** Request number prefixes: PCR petty cash, OSR open suspense, CSR closed suspense. */

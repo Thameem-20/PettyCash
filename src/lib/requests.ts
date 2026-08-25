@@ -631,16 +631,16 @@ export type RequestActivityItem = {
   created_at: string;
 };
 
-/** Chronological timeline — always starts with messenger submission. */
+/** Chronological timeline — starts with the submitter's actual role. */
 export function buildRequestActivity(
-  req: { submitted_by_name: string; created_at: string },
+  req: { submitted_by_name: string; created_at: string; submitter_role?: string | null },
   approvals: Awaited<ReturnType<typeof getApprovals>>
 ): RequestActivityItem[] {
   const items: RequestActivityItem[] = [
     {
       id: "submitted",
       actor: req.submitted_by_name,
-      level: "messenger",
+      level: req.submitter_role || "submitter",
       action: "submitted",
       comments: null,
       old_amount: null,
