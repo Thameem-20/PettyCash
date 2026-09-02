@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
 import { queryOne, withTransaction } from "@/lib/db";
 import { PettyCashRequest } from "@/lib/types";
-import { accountsCanHandle } from "@/lib/requests";
+import { accountsCanHandle, getApprovals } from "@/lib/requests";
+import { accSupAlreadyApprovedForPayment } from "@/lib/accountsSupervisorFlow";
 import { auditTx } from "@/lib/audit";
 import { ACCOUNTS_PENDING_STATUSES, EXACT_STATUS } from "@/lib/status";
 
@@ -30,6 +31,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       throw new ApiError(
         409,
         "Only requests pending accounts payment or issue can be sent to Accounts Supervisor."
+      );
+    }
+
+    if (session.role === "accounts_supervisor") {
+      throw new ApiError(403, "Accounts Supervisor cannot send a request to themselves.");
+    }
+
+    const approvals = await getApprovals(id);
+    if (accSupAlreadyApprovedForPayment(approvals)) {
+      throw new ApiError(
+        409,
+        "Accounts Supervisor already approved this request. Proceed with payment instead."
       );
     }
 

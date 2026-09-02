@@ -39,6 +39,7 @@ export interface EnrichedRequest {
   accounts_user_id: number | null;
   processing_by_user_id: number | null;
   processing_by_name: string | null;
+  processing_by_role: Role | null;
   branch_override: number;
   reject_reason: string | null;
   created_at: string;
@@ -71,6 +72,7 @@ const SELECT = `
          su.name AS submitted_by_name,
          ru.name AS receiver_name,
          pu.name AS processing_by_name,
+         pu.role AS processing_by_role,
          sup.name AS supervisor_name,
          (
            SELECT GROUP_CONCAT(DISTINCT ch.truck_number ORDER BY ch.sort_order, ch.id SEPARATOR ', ')
@@ -279,6 +281,9 @@ export async function assertCanPayExact(
     }
     if (request.approved_amount == null) {
       return "Request has not been approved by a supervisor.";
+    }
+    if (session.role === "accounts_supervisor") {
+      return "Accounts Supervisor cannot pay this request. Accounts will process payment after you approve.";
     }
   }
 

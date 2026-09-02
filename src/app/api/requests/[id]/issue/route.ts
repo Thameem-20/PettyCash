@@ -3,6 +3,7 @@ import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
 import { queryOne, withTransaction } from "@/lib/db";
 import { PettyCashRequest } from "@/lib/types";
 import { accountsCanHandle } from "@/lib/requests";
+import { accountsSupervisorMayProcess } from "@/lib/accountsSupervisorFlow";
 import { postLedger } from "@/lib/ledger";
 import { auditTx } from "@/lib/audit";
 import { SUSPENSE_STATUS } from "@/lib/status";
@@ -21,6 +22,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!request) throw new ApiError(404, "Request not found");
     if (request.request_type !== "suspense") throw new ApiError(400, "Not a suspense request.");
     if (!(await accountsCanHandle(session, request.branch_id))) throw new ApiError(403, "Not your branch");
+    if (session.role === "accounts_supervisor" && !accountsSupervisorMayProcess(request)) {
+      throw new ApiError(
+        403,
+        "Accounts Supervisor cannot issue this advance. Accounts will process it after you approve."
+      );
+    }
     if (request.status !== SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE)
       throw new ApiError(409, `Request is not ready to issue advance (status: ${request.status}).`);
     if (request.approved_amount == null) throw new ApiError(409, "Request has not been approved.");

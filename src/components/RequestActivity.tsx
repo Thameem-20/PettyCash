@@ -22,6 +22,7 @@ const ACTION_LABELS: Record<string, string> = {
   return_on_behalf: "Returned on behalf of supervisor",
   reject_on_behalf: "Rejected on behalf of supervisor",
   escalate_accounts_supervisor: "Sent to Accounts Supervisor",
+  release_processing: "Released processing",
   reject: "Rejected",
   return: "Returned for correction",
   edit_amount: "Amount edited",

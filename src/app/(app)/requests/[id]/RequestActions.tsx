@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { EnrichedRequest, RequestCharge } from "@/lib/requests";
+import { accountsSupervisorMayProcess } from "@/lib/accountsSupervisorFlow";
 import type { SessionUser } from "@/lib/types";
 import { EXACT_STATUS, SUSPENSE_STATUS, OPEN_SUSPENSE_STATUSES, CLOSED_STATUSES, isStaffReimbursementRole } from "@/lib/status";
 import { money, round2, formatDate } from "@/lib/util";
@@ -47,8 +48,9 @@ function sessionCanPayRequest(
   }
 
   return (
-    request.status === EXACT_STATUS.PENDING_PAYMENT ||
-    request.status === EXACT_STATUS.PENDING_ACCOUNTS_REVIEW
+    (session.role === "accounts" || session.role === "admin") &&
+    (request.status === EXACT_STATUS.PENDING_PAYMENT ||
+      request.status === EXACT_STATUS.PENDING_ACCOUNTS_REVIEW)
   );
 }
 
@@ -69,6 +71,7 @@ export default function RequestActions({
   charges = [],
   suspenseReturns = [],
   hasOrphanPaymentLedger = false,
+  accSupApprovedForPayment = false,
 }: {
   request: EnrichedRequest;
   session: SessionUser;
@@ -79,6 +82,8 @@ export default function RequestActions({
   suspenseReturns?: SuspenseReturnRow[];
   /** Ledger still has pay/issue row after a prior undo that only posted an adjustment. */
   hasOrphanPaymentLedger?: boolean;
+  /** Acc Sup already approved the current escalate round — Accounts should pay. */
+  accSupApprovedForPayment?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -255,12 +260,27 @@ export default function RequestActions({
 
   const canEscalateToAccSup =
     isAccounts &&
+    session.role !== "accounts_supervisor" &&
     !isOwnRequest &&
     request.submitter_role !== "accounts" &&
+    !accSupApprovedForPayment &&
     (s === EXACT_STATUS.PENDING_PAYMENT ||
       s === EXACT_STATUS.PENDING_ACCOUNTS_REVIEW ||
       s === SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE) &&
     (!request.processing_by_user_id || request.processing_by_user_id === session.id);
+
+  const canReleaseProcessing =
+    Boolean(request.processing_by_user_id) &&
+    (request.processing_by_user_id === session.id ||
+      isAccSup ||
+      (session.role === "accounts" && request.processing_by_role === "accounts_supervisor"));
+
+  const accSupHandsOffPayment =
+    session.role === "accounts_supervisor" &&
+    !accountsSupervisorMayProcess(request) &&
+    (s === EXACT_STATUS.PENDING_PAYMENT ||
+      s === EXACT_STATUS.PENDING_ACCOUNTS_REVIEW ||
+      s === SUSPENSE_STATUS.PENDING_ACCOUNTS_ISSUE);
 
   // Accounts exact reimbursements use Approve & Pay; everything else at Acc Sup queue uses approve-for-pay/issue.
   const isStaffAccountsExact =
@@ -284,7 +304,25 @@ export default function RequestActions({
     );
   }
 
-  if (isAccounts && accountsActionable && !isEscalatedAccSupQueue) {
+  if (accSupHandsOffPayment) {
+    panels.push(
+      <div key="acc-sup-handoff" className="card space-y-3 p-4">
+        <p className="text-sm text-slate-600">
+          {accSupApprovedForPayment
+            ? "You already approved this for payment. Accounts will process it — you cannot start processing."
+            : "Accounts will process this request. You cannot start processing."}
+        </p>
+        {canReleaseProcessing && (
+          <ReleaseProcessingButton
+            post={post}
+            busy={busy}
+            holderName={request.processing_by_name}
+            isSelf={request.processing_by_user_id === session.id}
+          />
+        )}
+      </div>
+    );
+  } else if (isAccounts && accountsActionable && !isEscalatedAccSupQueue) {
     if (isOwnRequest && request.request_type === "exact") {
       panels.push(<Note key="own-pay">You cannot pay your own reimbursement request.</Note>);
     } else if (
@@ -305,10 +343,20 @@ export default function RequestActions({
       );
     } else if (request.processing_by_user_id && request.processing_by_user_id !== session.id) {
       panels.push(
-        <Note key="proc">
-          Currently being processed by <b>{request.processing_by_name}</b>. To avoid duplicate payment you
-          cannot process this request.
-        </Note>
+        <div key="proc" className="card space-y-3 p-4">
+          <p className="text-sm text-amber-800">
+            Currently being processed by <b>{request.processing_by_name}</b>. To avoid duplicate
+            payment you cannot process this request.
+          </p>
+          {canReleaseProcessing && (
+            <ReleaseProcessingButton
+              post={post}
+              busy={busy}
+              holderName={request.processing_by_name}
+              isSelf={false}
+            />
+          )}
+        </div>
       );
     } else if (
       request.request_type === "exact"
@@ -319,8 +367,9 @@ export default function RequestActions({
         panels.push(
           <div key="claim" className="card space-y-3 p-4">
             <p className="mb-2 text-sm text-slate-600">
-              Start processing to lock this request to yourself, or send it to Accounts Supervisor
-              for approval first.
+              {canEscalateToAccSup
+                ? "Start processing to lock this request to yourself, or send it to Accounts Supervisor for approval first."
+                : "Start processing to lock this request to yourself."}
             </p>
             <div className="flex flex-wrap gap-2">
               <button className="btn-secondary" disabled={busy} onClick={() => post("claim", {})}>
@@ -349,6 +398,7 @@ export default function RequestActions({
             busy={busy}
             approveAndPay={isApproveAndPay}
             canEscalate={canEscalateToAccSup}
+            canRelease={canReleaseProcessing}
             canEditAmount={isAccSup}
           />
         );
@@ -360,6 +410,7 @@ export default function RequestActions({
             post={post}
             busy={busy}
             canEscalate={canEscalateToAccSup}
+            canRelease={canReleaseProcessing}
             canEditAmount={isAccSup}
           />
         );
@@ -465,6 +516,35 @@ export default function RequestActions({
 
 function Note({ children }: { children: React.ReactNode }) {
   return <div className="card bg-amber-50 p-4 text-sm text-amber-800">{children}</div>;
+}
+
+function ReleaseProcessingButton({
+  post,
+  busy,
+  holderName,
+  isSelf,
+}: {
+  post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
+  busy: boolean;
+  holderName: string | null;
+  isSelf: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      {!isSelf && holderName && (
+        <p className="text-xs text-slate-500">
+          Release so another accounts user can start processing (currently locked to {holderName}).
+        </p>
+      )}
+      <button
+        className="btn-secondary"
+        disabled={busy}
+        onClick={() => post("release-processing", {})}
+      >
+        Release processing
+      </button>
+    </div>
+  );
 }
 
 function ConfirmCashPanel({
@@ -701,6 +781,7 @@ function PayPanel({
   busy,
   approveAndPay = false,
   canEscalate = false,
+  canRelease = false,
   canEditAmount = false,
 }: {
   request: EnrichedRequest;
@@ -708,6 +789,7 @@ function PayPanel({
   busy: boolean;
   approveAndPay?: boolean;
   canEscalate?: boolean;
+  canRelease?: boolean;
   canEditAmount?: boolean;
 }) {
   const ctx = usePaymentAmountContext();
@@ -774,6 +856,15 @@ function PayPanel({
             Send to Accounts Supervisor
           </button>
         )}
+        {canRelease && (
+          <button
+            className="btn-secondary"
+            disabled={busy}
+            onClick={() => post("release-processing", {})}
+          >
+            Release processing
+          </button>
+        )}
       </div>
       <AccountsReturnPanel post={post} busy={busy} />
     </div>
@@ -786,12 +877,14 @@ function IssuePanel({
   post,
   busy,
   canEscalate = false,
+  canRelease = false,
   canEditAmount = false,
 }: {
   request: EnrichedRequest;
   post: (p: string, b: Record<string, unknown>) => Promise<boolean>;
   busy: boolean;
   canEscalate?: boolean;
+  canRelease?: boolean;
   canEditAmount?: boolean;
 }) {
   const ctx = usePaymentAmountContext();
@@ -857,6 +950,15 @@ function IssuePanel({
             onClick={() => post("escalate-acc-sup", {})}
           >
             Send to Accounts Supervisor
+          </button>
+        )}
+        {canRelease && (
+          <button
+            className="btn-secondary"
+            disabled={busy}
+            onClick={() => post("release-processing", {})}
+          >
+            Release processing
           </button>
         )}
       </div>

@@ -3,6 +3,7 @@ import { ApiError, fail, ok, requireApiSession } from "@/lib/api";
 import { queryOne, execute } from "@/lib/db";
 import { PettyCashRequest } from "@/lib/types";
 import { accountsCanHandle, assertCanPayExact } from "@/lib/requests";
+import { accountsSupervisorMayProcess } from "@/lib/accountsSupervisorFlow";
 import { audit } from "@/lib/audit";
 import { ACCOUNTS_PENDING_STATUSES, EXACT_STATUS } from "@/lib/status";
 
@@ -18,6 +19,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       ACCOUNTS_PENDING_STATUSES.includes(request.status) ||
       request.status === EXACT_STATUS.PENDING_ACC_SUP;
     if (!claimable) throw new ApiError(409, "Request is not pending accounts action.");
+
+    if (session.role === "accounts_supervisor" && !accountsSupervisorMayProcess(request)) {
+      throw new ApiError(
+        403,
+        "Accounts Supervisor cannot start processing this request. Accounts will pay after you approve."
+      );
+    }
 
     // Reuse pay routing so Acc Sup / Accounts claim only what they can pay.
     if (request.request_type === "exact") {

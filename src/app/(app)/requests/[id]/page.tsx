@@ -12,6 +12,7 @@ import {
   getRequestCharges,
   isPaymentReceiptDownloadReady,
 } from "@/lib/requests";
+import { accSupAlreadyApprovedForPayment } from "@/lib/accountsSupervisorFlow";
 import { PageHeader } from "@/components/page-chrome";
 import StatusBadge from "@/components/StatusBadge";
 import RequestActivity from "@/components/RequestActivity";
@@ -123,6 +124,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             charges={JSON.parse(JSON.stringify(charges))}
             suspenseReturns={JSON.parse(JSON.stringify(suspenseReturns))}
             hasOrphanPaymentLedger={hasOrphanPaymentLedger}
+            accSupApprovedForPayment={accSupAlreadyApprovedForPayment(approvals)}
           />
 
           <RequestDetailsEditor
