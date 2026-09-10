@@ -4,6 +4,7 @@ import { query, queryOne, withTransaction } from "@/lib/db";
 import { PettyCashRequest, type Role } from "@/lib/types";
 import { replaceRequestJobNumbers } from "@/lib/requests";
 import { parseJobNumbers, resolveBranchFromJobNumbers, pickAccountsUser } from "@/lib/routing";
+import { deleteStoredFile } from "@/lib/files";
 import { auditTx } from "@/lib/audit";
 import { EXACT_STATUS, SUSPENSE_STATUS } from "@/lib/status";
 import {
@@ -75,22 +76,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       throw new ApiError(409, "Request is not awaiting correction.");
     }
 
-    const storedCharges = await query<{ id: number }>(
-      "SELECT id FROM request_charges WHERE request_id = ? ORDER BY sort_order, id",
+    const storedCharges = await query<{ id: number; category_id: number | null }>(
+      "SELECT id, category_id FROM request_charges WHERE request_id = ? ORDER BY sort_order, id",
       [id]
     );
     if (chargeInputs) {
       if (chargeInputs.length === 0) throw new ApiError(400, "At least one charge is required.");
-      if (
-        storedCharges.length > 0 &&
-        (chargeInputs.length !== storedCharges.length ||
-          storedCharges.some(
-            (stored) => !chargeInputs.some((charge) => charge.charge_id === stored.id)
-          ))
-      ) {
-        throw new ApiError(400, "The submitted charges do not match this request.");
-      }
+      const storedIds = new Set(storedCharges.map((stored) => stored.id));
+      const seen = new Set<number>();
       for (const charge of chargeInputs) {
+        if (
+          storedCharges.length > 0 &&
+          (!storedIds.has(charge.charge_id) || seen.has(charge.charge_id))
+        ) {
+          throw new ApiError(400, "The submitted charges do not match this request.");
+        }
+        seen.add(charge.charge_id);
         if (!charge.description) throw new ApiError(400, "Each charge needs a description.");
         if (!(charge.amount > 0)) {
           throw new ApiError(400, "Each charge amount must be greater than zero.");
@@ -100,6 +101,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         }
       }
     }
+
+    const keptCharges =
+      chargeInputs && storedCharges.length > 0
+        ? chargeInputs.map((charge) => {
+            const stored = storedCharges.find((row) => row.id === charge.charge_id);
+            return stored ?? { id: charge.charge_id, category_id: null };
+          })
+        : storedCharges;
+    const removedChargeIds =
+      chargeInputs && storedCharges.length > 0
+        ? storedCharges
+            .filter((stored) => !chargeInputs.some((charge) => charge.charge_id === stored.id))
+            .map((stored) => stored.id)
+        : [];
 
     if (description !== null && !description) throw new ApiError(400, "Description cannot be empty.");
     if (amount != null && !(amount > 0)) throw new ApiError(400, "Amount must be greater than zero.");
@@ -114,21 +129,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
       // Every charge needs its own receipt, same as when the request was created.
       // Receipts saved before per-charge linking count towards the first charge.
-      if (storedCharges.length > 0) {
+      if (keptCharges.length > 0) {
         const linkedChargeIds = new Set(
           receiptRows
             .map((receipt) =>
-              receipt.charge_id ?? (storedCharges[0] ? storedCharges[0].id : null)
+              receipt.charge_id ?? (keptCharges[0] ? keptCharges[0].id : null)
             )
             .filter((chargeId): chargeId is number => chargeId != null)
         );
-        const missing = storedCharges
+        const missing = keptCharges
           .map((charge, index) => ({ charge, index }))
           .filter(({ charge }) => !linkedChargeIds.has(charge.id));
         if (missing.length > 0) {
           throw new ApiError(
             422,
-            storedCharges.length > 1
+            keptCharges.length > 1
               ? `Upload a receipt for charge ${missing
                   .map(({ index }) => index + 1)
                   .join(", ")} before resubmitting.`
@@ -178,6 +193,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const newStatus = createState.status;
     const approvedAmount = createState.approved_amount;
 
+    const categoryId = keptCharges[0]?.category_id ?? request.category_id;
+
     await withTransaction(async (conn) => {
       await conn.execute(
         `UPDATE petty_cash_requests
@@ -186,7 +203,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 requested_amount = COALESCE(?, requested_amount),
                 approved_amount = ?,
                 approved_at = IF(? IS NOT NULL, NOW(), NULL),
-                branch_id = ?, job_number = ?, accounts_user_id = ?
+                branch_id = ?, job_number = ?, accounts_user_id = ?,
+                category_id = ?
           WHERE id = ?`,
         [
           newStatus,
@@ -197,20 +215,43 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           branchId,
           primaryJobNumber,
           accountsUserId,
+          categoryId,
           id,
         ]
       );
 
       if (chargeInputs && storedCharges.length > 0) {
-        for (const charge of chargeInputs) {
+        if (removedChargeIds.length > 0) {
+          const placeholders = removedChargeIds.map(() => "?").join(",");
+          const [receiptRowsToDelete] = await conn.query<any[]>(
+            `SELECT id, file_url FROM receipts
+              WHERE request_id = ? AND charge_id IN (${placeholders})`,
+            [id, ...removedChargeIds]
+          );
+          await conn.execute(
+            `DELETE FROM receipts WHERE request_id = ? AND charge_id IN (${placeholders})`,
+            [id, ...removedChargeIds]
+          );
+          for (const receipt of receiptRowsToDelete || []) {
+            await deleteStoredFile(String(receipt.file_url));
+          }
+          await conn.execute(
+            `DELETE FROM request_charges WHERE request_id = ? AND id IN (${placeholders})`,
+            [id, ...removedChargeIds]
+          );
+        }
+
+        for (let i = 0; i < chargeInputs.length; i++) {
+          const charge = chargeInputs[i];
           await conn.execute(
             `UPDATE request_charges
-                SET description = ?, amount = ?, job_number = ?
+                SET description = ?, amount = ?, job_number = ?, sort_order = ?
               WHERE id = ? AND request_id = ?`,
             [
               charge.description,
               charge.amount,
               request.charge_type === "job" ? charge.job_number : null,
+              i,
               charge.charge_id,
               id,
             ]
@@ -252,7 +293,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         entityType: "petty_cash_request",
         entityId: id,
         oldValue: { status: request.status, branch_id: request.branch_id },
-        newValue: { status: newStatus, branch_id: branchId },
+        newValue: {
+          status: newStatus,
+          branch_id: branchId,
+          removed_charge_ids: removedChargeIds,
+        },
       });
     });
 

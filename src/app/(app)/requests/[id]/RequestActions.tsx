@@ -1110,9 +1110,9 @@ function ResubmitPanel({
     );
   const isJob = request.charge_type === "job";
   const resolvedJobBranches = new Set(
-    Object.values(jobStatuses)
-      .map((status) => status.branch?.id)
-      .filter((branchId): branchId is number => branchId != null)
+    chargeDrafts
+      .map((charge) => jobStatuses[charge.charge_id]?.branch?.id)
+      .filter((id): id is number => id != null)
   );
   const routingValid = isJob
     ? chargeDrafts.every((charge) => jobStatuses[charge.charge_id]?.valid) &&
@@ -1131,6 +1131,18 @@ function ResubmitPanel({
         charge.charge_id === chargeId ? { ...charge, ...patch } : charge
       )
     );
+  }
+
+  function removeCharge(chargeId: number) {
+    setChargeDrafts((current) => {
+      if (current.length <= 1) return current;
+      return current.filter((charge) => charge.charge_id !== chargeId);
+    });
+    setJobStatuses((current) => {
+      const next = { ...current };
+      delete next[chargeId];
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -1219,7 +1231,10 @@ function ResubmitPanel({
       <p className="text-sm text-slate-600">
         {isStaffReimbursementRole(request.submitter_role)
           ? "Update details and receipts if needed, then resubmit for payment."
-          : "Update details and receipts if needed, then resubmit. It will go to your supervisor for approval, then back to accounts."}
+          : "Update details and receipts if needed, then resubmit. It will go to your supervisor for approval, then back to accounts."}{" "}
+        {charges.length > 1
+          ? "You can remove a duplicate charge. At least one charge must remain."
+          : null}
       </p>
 
       <div className="space-y-4">
@@ -1235,10 +1250,23 @@ function ResubmitPanel({
               <div className="flex items-center justify-between gap-3">
                 <p className="font-semibold text-slate-900">
                   Charge {index + 1}
+                  {chargeDrafts.length > 1 ? ` of ${chargeDrafts.length}` : ""}
                 </p>
-                <span className="text-xs text-slate-500">
-                  {money(Number(charge.amount) || 0, request.currency)}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500">
+                    {money(Number(charge.amount) || 0, request.currency)}
+                  </span>
+                  {chargeDrafts.length > 1 && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-rose-600 hover:underline disabled:opacity-50"
+                      disabled={actionBusy}
+                      onClick={() => removeCharge(charge.charge_id)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
 
               {isJob && (
@@ -1345,6 +1373,15 @@ function ResubmitPanel({
           );
         })}
       </div>
+
+      {chargeDrafts.length > 1 && (
+        <p className="text-sm font-medium text-slate-700">
+          Total {money(
+            chargeDrafts.reduce((sum, charge) => sum + (Number(charge.amount) || 0), 0),
+            request.currency
+          )}
+        </p>
+      )}
 
       {receiptError && (
         <p className="border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">
